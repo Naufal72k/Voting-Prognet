@@ -5,13 +5,14 @@ import java.util.Set;
 
 /**
  * =============================================================================
- * 📦 VOTING SESSION (DATA MODEL) - V3 ROBUST
+ * 📦 VOTING SESSION (DATA MODEL) - V3.1 ROBUST
  * =============================================================================
  * UPDATE FITUR:
  * - Identity Management: Flag `isFromDatabase` untuk membedakan sesi Live vs
  * Arsip.
  * - Proteksi Integritas Data: Mencegah modifikasi suara pada sesi arsip.
  * - Thread-Safety: Sinkronisasi saat menambah suara.
+ * - Reset Support: Mendukung reset suara untuk simulasi/stress test.
  */
 public class VotingSession {
 
@@ -110,6 +111,18 @@ public class VotingSession {
     // =========================================================================
     // 🛑 SESSION MANAGEMENT
     // =========================================================================
+
+    /**
+     * MERESET semua suara menjadi 0.
+     * Fitur ini digunakan khusus untuk Stress Test mode "No Save"
+     * agar bisa melakukan simulasi berulang kali tanpa restart server.
+     */
+    public synchronized void resetVotes() {
+        for (String key : voteData.keySet()) {
+            voteData.put(key, 0);
+        }
+        System.out.println("🔄 VOTES RESET: " + sessionTitle);
+    }
 
     /**
      * Digunakan oleh Admin untuk MENGHENTIKAN sesi Live.

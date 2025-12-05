@@ -15,13 +15,13 @@ import javax.swing.border.EmptyBorder;
 
 /**
  * =============================================================================
- * 🗳️ VOTER CLIENT: IMPROVED UX (V3)
+ * 🗳️ VOTER CLIENT: IMPROVED UX (V3.1)
  * =============================================================================
- * FITUR BARU:
- * 1. Login/Auth Overlay (NIK).
- * 2. Navigasi Sidebar "Vote" yang Cerdas (Bukan Blind Jump).
- * 3. Konfirmasi sebelum masuk Bilik Suara.
- * 4. Visualisasi Status "SUDAH MEMILIH" (Persistence State).
+ * UPDATE LOG:
+ * - Hapus Login NIK (Langsung Masuk).
+ * - Hapus Efek Hover pada Kartu Kandidat (Static UI).
+ * - Navigasi Sidebar "Vote" yang Cerdas.
+ * - Konfirmasi sebelum masuk Bilik Suara.
  */
 public class VoterClient extends JFrame {
 
@@ -33,8 +33,8 @@ public class VoterClient extends JFrame {
     private DataInputStream in;
 
     // Identitas Pemilih
-    private String voterNIK = "";
-    private boolean isLoggedIn = false;
+    private String voterNIK = "Guest"; // Default Guest
+    private boolean isLoggedIn = true; // Langsung true
 
     // Data Sesi
     private List<SessionInfo> sessionList = new ArrayList<>();
@@ -45,7 +45,6 @@ public class VoterClient extends JFrame {
     private Map<String, ImageIcon> candidatePhotos = new HashMap<>();
 
     // Security & State Flag
-    // Menyimpan Judul Sesi yang sudah diikuti user selama aplikasi menyala
     private Set<String> votedSessions = new HashSet<>();
 
     // =========================================================================
@@ -54,14 +53,14 @@ public class VoterClient extends JFrame {
     private CardLayout contentLayout;
     private JPanel mainContentPanel;
     private JPanel galleryContainer;
-    private JPanel sidebarPanel; // Disimpan agar bisa di-disable saat belum login
+    private JPanel sidebarPanel;
 
     // Sidebar Buttons
     private AppTheme.SidebarButton btnNavGallery;
     private AppTheme.SidebarButton btnNavVote;
 
     public VoterClient() {
-        setTitle("E-Voting Terminal - Client (V3 UX Upgrade)");
+        setTitle("E-Voting Terminal - Client (V3.1)");
         setSize(1280, 800);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
@@ -70,9 +69,9 @@ public class VoterClient extends JFrame {
         initSidebar();
         initContentArea();
 
-        // Mulai di halaman Login, Sidebar dimatikan dulu
-        setSidebarEnabled(false);
-        contentLayout.show(mainContentPanel, "PAGE_LOGIN");
+        // 1. SKIP LOGIN -> Langsung ke Galeri
+        setSidebarEnabled(true);
+        switchPage("PAGE_GALLERY", btnNavGallery);
 
         // Start Connection di background
         new Thread(this::connectAndSetup).start();
@@ -103,7 +102,6 @@ public class VoterClient extends JFrame {
         });
 
         // --- NAVIGASI VOTE (CERDAS) ---
-        // Goals 1: Mencegah Blind Jump
         btnNavVote.addActionListener(e -> handleVoteNavigationClick());
 
         sidebarPanel.add(lblLogo);
@@ -135,8 +133,7 @@ public class VoterClient extends JFrame {
         mainContentPanel = new JPanel(contentLayout);
         mainContentPanel.setBackground(AppTheme.COLOR_BACKGROUND_APP);
 
-        // Urutan Halaman
-        mainContentPanel.add(createPageLogin(), "PAGE_LOGIN");
+        // Urutan Halaman (LOGIN DIHAPUS)
         mainContentPanel.add(createPageLoading(), "PAGE_LOADING");
         mainContentPanel.add(createPageGallery(), "PAGE_GALLERY");
         mainContentPanel.add(createPageSuccess(), "PAGE_SUCCESS");
@@ -152,76 +149,6 @@ public class VoterClient extends JFrame {
         if (activeButton != null) {
             activeButton.setActive(true);
         }
-    }
-
-    // =========================================================================
-    // 🔐 PAGE 0: LOGIN OVERLAY (Goals 4)
-    // =========================================================================
-    private JPanel createPageLogin() {
-        JPanel panel = new JPanel(new GridBagLayout());
-        panel.setBackground(AppTheme.COLOR_BACKGROUND_APP);
-
-        JPanel card = AppTheme.createShadowPanel();
-        card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
-        card.setBackground(Color.WHITE);
-        card.setPreferredSize(new Dimension(400, 350));
-
-        JLabel icon = new JLabel("🔐");
-        icon.setFont(new Font("Segoe UI Emoji", Font.PLAIN, 60));
-        icon.setAlignmentX(Component.CENTER_ALIGNMENT);
-
-        JLabel title = new JLabel("Login Pemilih");
-        title.setFont(AppTheme.FONT_H1);
-        title.setForeground(AppTheme.COLOR_TEXT_MAIN);
-        title.setAlignmentX(Component.CENTER_ALIGNMENT);
-
-        JLabel subtitle = new JLabel("Masukkan NIK / ID Anda untuk melanjutkan");
-        subtitle.setFont(AppTheme.FONT_BODY);
-        subtitle.setForeground(AppTheme.COLOR_TEXT_MUTED);
-        subtitle.setAlignmentX(Component.CENTER_ALIGNMENT);
-
-        JTextField txtNik = new JTextField();
-        AppTheme.styleTextField(txtNik);
-        txtNik.setMaximumSize(new Dimension(300, 40));
-        txtNik.setAlignmentX(Component.CENTER_ALIGNMENT);
-
-        JButton btnLogin = AppTheme.createGradientButton("MASUK KE SISTEM", 300, 45);
-        btnLogin.setAlignmentX(Component.CENTER_ALIGNMENT);
-
-        // Logic Login
-        ActionListener loginAction = e -> {
-            String input = txtNik.getText().trim();
-            if (input.isEmpty()) {
-                JOptionPane.showMessageDialog(this, "NIK tidak boleh kosong!", "Peringatan",
-                        JOptionPane.WARNING_MESSAGE);
-                return;
-            }
-            // Simpan Identitas
-            voterNIK = input;
-            isLoggedIn = true;
-
-            // Buka Akses
-            setSidebarEnabled(true);
-            refreshGalleryUI();
-            switchPage("PAGE_GALLERY", btnNavGallery);
-        };
-
-        btnLogin.addActionListener(loginAction);
-        txtNik.addActionListener(loginAction); // Enter key support
-
-        card.add(Box.createVerticalStrut(20));
-        card.add(icon);
-        card.add(Box.createVerticalStrut(10));
-        card.add(title);
-        card.add(subtitle);
-        card.add(Box.createVerticalStrut(30));
-        card.add(txtNik);
-        card.add(Box.createVerticalStrut(20));
-        card.add(btnLogin);
-        card.add(Box.createVerticalGlue());
-
-        panel.add(card);
-        return panel;
     }
 
     // =========================================================================
@@ -247,15 +174,15 @@ public class VoterClient extends JFrame {
 
         JPanel header = new JPanel(new BorderLayout());
         header.setOpaque(false);
-        
+
         JLabel lblTitle = new JLabel("Galeri Pemilihan");
         lblTitle.setFont(AppTheme.FONT_H1);
         lblTitle.setForeground(AppTheme.COLOR_TEXT_MAIN);
-        
-        JLabel lblUser = new JLabel("Login sebagai: " + (voterNIK.isEmpty() ? "Tamu" : voterNIK));
+
+        JLabel lblUser = new JLabel("Mode: " + voterNIK);
         lblUser.setFont(AppTheme.FONT_BODY);
         lblUser.setForeground(AppTheme.COLOR_PRIMARY_START);
-        
+
         header.add(lblTitle, BorderLayout.WEST);
         header.add(lblUser, BorderLayout.EAST);
 
@@ -276,17 +203,16 @@ public class VoterClient extends JFrame {
 
     private JPanel createSessionCard(SessionInfo session) {
         JPanel card = AppTheme.createShadowPanel();
-        card.setPreferredSize(new Dimension(300, 240)); // Tinggi disesuaikan
+        card.setPreferredSize(new Dimension(300, 240));
         card.setLayout(new BorderLayout());
         card.setBackground(Color.WHITE);
 
-        // Cek apakah user sudah memilih di sesi ini (Goals 3)
         boolean hasVotedInThisSession = votedSessions.contains(session.title);
 
         // --- TOP PANEL (Status) ---
         JPanel topPanel = new JPanel(new BorderLayout());
         topPanel.setOpaque(false);
-        
+
         JLabel lblStatus;
         if (hasVotedInThisSession) {
             lblStatus = new JLabel("● SUDAH MEMILIH");
@@ -297,7 +223,7 @@ public class VoterClient extends JFrame {
         }
         lblStatus.setFont(new Font("Segoe UI", Font.BOLD, 12));
         topPanel.add(lblStatus, BorderLayout.WEST);
-        
+
         if (hasVotedInThisSession) {
             JLabel badge = new JLabel("✅");
             topPanel.add(badge, BorderLayout.EAST);
@@ -328,19 +254,17 @@ public class VoterClient extends JFrame {
 
         // --- BOTTOM PANEL (Action) ---
         JButton btnAction;
-        
+
         if (hasVotedInThisSession) {
-            // Jika sudah memilih, tombol mati
             btnAction = new JButton("SUDAH MEMILIH");
             btnAction.setEnabled(false);
             btnAction.setBackground(Color.LIGHT_GRAY);
             btnAction.setFont(new Font("Segoe UI", Font.BOLD, 12));
             btnAction.setPreferredSize(new Dimension(250, 40));
         } else {
-            // Jika belum memilih
             btnAction = AppTheme.createGradientButton(session.isActive ? "PILIH SEKARANG" : "LIHAT DETAIL", 250, 40);
             btnAction.setFont(new Font("Segoe UI", Font.BOLD, 12));
-            
+
             btnAction.addActionListener(e -> {
                 if (session.isActive) {
                     attemptToEnterBallot(session.title);
@@ -358,53 +282,40 @@ public class VoterClient extends JFrame {
     }
 
     // =========================================================================
-    // 🧠 LOGIC: NAVIGASI CERDAS & KONFIRMASI (Goals 1 & 2)
+    // 🧠 LOGIC: NAVIGASI CERDAS & KONFIRMASI
     // =========================================================================
 
-    /**
-     * Menangani klik tombol Sidebar "Vote" (Ikon Pen).
-     * Tidak lagi "Blind Jump".
-     */
     private void handleVoteNavigationClick() {
-        // 1. Cek apakah ada sesi aktif yang datanya sudah masuk
         if (activeSession == null) {
-            JOptionPane.showMessageDialog(this, 
-                "Tidak ada pemilihan yang sedang berlangsung saat ini.\nSilakan cek kembali nanti.",
-                "Info", JOptionPane.INFORMATION_MESSAGE);
+            JOptionPane.showMessageDialog(this,
+                    "Tidak ada pemilihan yang sedang berlangsung saat ini.\nSilakan cek kembali nanti.",
+                    "Info", JOptionPane.INFORMATION_MESSAGE);
             return;
         }
 
-        // 2. Cek apakah user sudah memilih di sesi aktif tersebut
         if (votedSessions.contains(activeSession.title)) {
-             JOptionPane.showMessageDialog(this, 
-                "Anda sudah memberikan suara untuk sesi: " + activeSession.title + "\nTerima kasih atas partisipasi Anda.",
-                "Sudah Memilih", JOptionPane.WARNING_MESSAGE);
-             return;
+            JOptionPane.showMessageDialog(this,
+                    "Anda sudah memberikan suara untuk sesi: " + activeSession.title
+                            + "\nTerima kasih atas partisipasi Anda.",
+                    "Sudah Memilih", JOptionPane.WARNING_MESSAGE);
+            return;
         }
 
-        // 3. Jika ada sesi aktif & belum memilih, tawarkan masuk (Konfirmasi)
-        // Karena server saat ini hanya streaming 1 sesi aktif, kita langsung tawarkan yang itu.
         attemptToEnterBallot(activeSession.title);
     }
 
-    /**
-     * Logika Pusat untuk masuk ke Bilik Suara.
-     * Mengandung Konfirmasi Dialog.
-     */
     private void attemptToEnterBallot(String sessionTitle) {
-        // Validasi: Data sesi aktif harus sesuai dengan yang diminta
         if (activeSession == null || !activeSession.title.equals(sessionTitle)) {
-             JOptionPane.showMessageDialog(this, "Data surat suara belum siap atau tidak sinkron. Tunggu sebentar...");
-             return;
+            JOptionPane.showMessageDialog(this, "Data surat suara belum siap atau tidak sinkron. Tunggu sebentar...");
+            return;
         }
 
-        // KONFIRMASI (Goals 2)
         int choice = JOptionPane.showConfirmDialog(this,
-            "<html>Anda akan memasuki bilik suara untuk pemilihan:<br/><b>" + sessionTitle + "</b><br/><br/>" +
-            "Pastikan pilihan Anda sudah bulat sebelum masuk.<br/>Lanjutkan?</html>",
-            "Konfirmasi Masuk Bilik Suara",
-            JOptionPane.YES_NO_OPTION,
-            JOptionPane.QUESTION_MESSAGE);
+                "<html>Anda akan memasuki bilik suara untuk pemilihan:<br/><b>" + sessionTitle + "</b><br/><br/>" +
+                        "Pastikan pilihan Anda sudah bulat sebelum masuk.<br/>Lanjutkan?</html>",
+                "Konfirmasi Masuk Bilik Suara",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.QUESTION_MESSAGE);
 
         if (choice == JOptionPane.YES_OPTION) {
             setupBallotScreen(sessionTitle);
@@ -426,21 +337,20 @@ public class VoterClient extends JFrame {
 
         JLabel lblTitle = new JLabel("Surat Suara: " + title);
         lblTitle.setFont(AppTheme.FONT_H1);
-        
+
         JLabel lblInstruct = new JLabel("Klik tombol 'PILIH' pada kandidat pilihan Anda.");
         lblInstruct.setFont(AppTheme.FONT_BODY);
-        
-        JPanel titleBox = new JPanel(new GridLayout(2,1));
+
+        JPanel titleBox = new JPanel(new GridLayout(2, 1));
         titleBox.setOpaque(false);
         titleBox.add(lblTitle);
         titleBox.add(lblInstruct);
-        
+
         header.add(titleBox, BorderLayout.WEST);
 
         JPanel gridContainer = new JPanel(new FlowLayout(FlowLayout.CENTER, 40, 40));
         gridContainer.setOpaque(false);
 
-        // Buat kartu kandidat dinamis
         for (String candName : activeCandidates) {
             gridContainer.add(new CandidateCard(candName));
         }
@@ -454,23 +364,17 @@ public class VoterClient extends JFrame {
         panel.add(header, BorderLayout.NORTH);
         panel.add(scrollPane, BorderLayout.CENTER);
 
-        // Hapus panel lama ballot jika ada, ganti baru
         try {
-            // Cari komponen dengan nama PAGE_BALLOT di CardLayout (agak tricky di Swing standard)
-            // Kita remove berdasarkan index atau asumsi logic switchPage.
-            // Cara aman: remove semua component yang bukan core pages, lalu add lagi.
-            // Simplifikasi: Kita replace komponen di map CardLayout
             mainContentPanel.add(panel, "PAGE_BALLOT");
         } catch (Exception e) {
             e.printStackTrace();
-        } 
+        }
     }
 
     /**
-     * Komponen Kartu Kandidat
+     * Komponen Kartu Kandidat (UI Static/Flat Update)
      */
     private class CandidateCard extends JPanel {
-        private boolean isHovered = false;
         private String name;
 
         public CandidateCard(String name) {
@@ -509,27 +413,17 @@ public class VoterClient extends JFrame {
             add(btnVote);
             add(Box.createVerticalStrut(25));
 
-            addMouseListener(new MouseAdapter() {
-                public void mouseEntered(MouseEvent e) {
-                    isHovered = true;
-                    setCursor(new Cursor(Cursor.HAND_CURSOR));
-                    repaint();
-                }
-
-                public void mouseExited(MouseEvent e) {
-                    isHovered = false;
-                    setCursor(new Cursor(Cursor.DEFAULT_CURSOR));
-                    repaint();
-                }
-            });
+            // HAPUS MouseListener (Hover Effect Removed)
         }
 
         @Override
         protected void paintComponent(Graphics g) {
             Graphics2D g2 = (Graphics2D) g;
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            int yOffset = isHovered ? 0 : 10;
-            int shadowAlpha = isHovered ? 50 : 20;
+
+            // UI Statis (Flat)
+            int yOffset = 10;
+            int shadowAlpha = 20;
 
             g2.setColor(new Color(0, 0, 0, shadowAlpha));
             g2.fillRoundRect(10, 10 + yOffset, getWidth() - 20, getHeight() - 20, 25, 25);
@@ -580,9 +474,6 @@ public class VoterClient extends JFrame {
 
     private void connectAndSetup() {
         try {
-            // Jangan switch ke loading jika sedang di login screen
-            // SwingUtilities.invokeLater(() -> contentLayout.show(mainContentPanel, "PAGE_LOADING"));
-            
             socket = new Socket(AppTheme.SERVER_HOST, AppTheme.SERVER_PORT);
             out = new DataOutputStream(socket.getOutputStream());
             in = new DataInputStream(socket.getInputStream());
@@ -599,17 +490,15 @@ public class VoterClient extends JFrame {
             if (header.equals("SETUP_V2_IMAGES")) {
                 handleSetupV2();
             } else if (header.startsWith("WAIT")) {
-                // Tidak ada sesi aktif
                 activeSession = null;
             }
 
-            // Update UI jika sudah login
-            if (isLoggedIn) {
-                SwingUtilities.invokeLater(this::refreshGalleryUI);
-            }
+            // Update UI jika sudah login (Always true now)
+            SwingUtilities.invokeLater(this::refreshGalleryUI);
 
         } catch (Exception e) {
-            SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(this, "Gagal koneksi server: " + e.getMessage()));
+            SwingUtilities
+                    .invokeLater(() -> JOptionPane.showMessageDialog(this, "Gagal koneksi server: " + e.getMessage()));
             e.printStackTrace();
         }
     }
@@ -636,28 +525,24 @@ public class VoterClient extends JFrame {
             }
         }
 
-        // Cari info sesi di history list untuk dicocokkan jadi activeSession
         boolean found = false;
         for (SessionInfo si : sessionList) {
             if (si.title.equals(title)) {
-                activeSession = si; // Link ke object SessionInfo yang sama
+                activeSession = si;
                 found = true;
                 break;
             }
         }
-        
+
         if (!found) {
-            // Fallback jika tidak ada di history list (jarang terjadi)
             activeSession = new SessionInfo(title, true, "-");
             sessionList.add(0, activeSession);
         }
-        
-        // PENTING: Jangan otomatis switch ke PAGE_BALLOT (Fix Blind Jump)
-        // Cukup simpan data, user yang akan navigasi sendiri.
     }
 
     private ImageIcon scaleImage(ImageIcon icon, int w, int h) {
-        if (icon == null) return null;
+        if (icon == null)
+            return null;
         Image img = icon.getImage();
         BufferedImage bi = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g2 = bi.createGraphics();
@@ -698,10 +583,9 @@ public class VoterClient extends JFrame {
     }
 
     private void submitVote(String candidateName) {
-        // Double check state
         if (activeSession != null && votedSessions.contains(activeSession.title)) {
-             JOptionPane.showMessageDialog(this, "Anda sudah memilih!");
-             return;
+            JOptionPane.showMessageDialog(this, "Anda sudah memilih!");
+            return;
         }
 
         int confirm = JOptionPane.showConfirmDialog(this, "Yakin memilih " + candidateName + "?");
@@ -710,12 +594,11 @@ public class VoterClient extends JFrame {
 
         try {
             out.writeUTF("VOTE|" + candidateName);
-            
-            // Goals 3: Simpan State Bahwa User Sudah Memilih
+
             if (activeSession != null) {
                 votedSessions.add(activeSession.title);
             }
-            
+
             switchPage("PAGE_SUCCESS", btnNavVote);
         } catch (IOException e) {
             e.printStackTrace();
@@ -737,7 +620,8 @@ public class VoterClient extends JFrame {
     public static void main(String[] args) {
         try {
             UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
-        } catch (Exception e) {}
+        } catch (Exception e) {
+        }
         SwingUtilities.invokeLater(() -> new VoterClient().setVisible(true));
     }
 }

@@ -10,9 +10,9 @@ import javax.swing.border.EmptyBorder;
  * 🎨 APP THEME: DESIGN SYSTEM CORE
  * =============================================================================
  * "Pabrik Komponen" untuk merender UI Modern.
- * UPDATE:
- * - Menambahkan Image Processing Utilities (scaleImage).
- * - Menambahkan Warna Status (Live/Ended).
+ * UPDATE LOG V3.1:
+ * - Menghapus efek Hover pada tombol (Static UI).
+ * - Menghapus MouseListener yang tidak perlu.
  */
 public class AppTheme {
 
@@ -131,24 +131,16 @@ public class AppTheme {
 
     public static JButton createGradientButton(String text, int width, int height) {
         JButton btn = new JButton(text) {
-            private boolean isHovered = false;
-            private boolean isPressed = false;
+            // Hapus isHovered & isPressed untuk menghilangkan efek interaktif
 
             @Override
             protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g.create();
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
+                // Warna Statis (Tidak berubah saat hover/klik)
                 Color color1 = COLOR_PRIMARY_START;
                 Color color2 = COLOR_PRIMARY_END;
-
-                if (isPressed) {
-                    color1 = color1.darker();
-                    color2 = color2.darker();
-                } else if (isHovered) {
-                    color1 = new Color(59, 130, 246);
-                    color2 = new Color(96, 165, 250);
-                }
 
                 GradientPaint gp = new GradientPaint(0, 0, color1, 0, getHeight(), color2);
                 g2.setPaint(gp);
@@ -164,37 +156,15 @@ public class AppTheme {
                 g2.dispose();
             }
 
-            {
-                addMouseListener(new MouseAdapter() {
-                    public void mouseEntered(MouseEvent e) {
-                        isHovered = true;
-                        repaint();
-                        setCursor(new Cursor(Cursor.HAND_CURSOR));
-                    }
-
-                    public void mouseExited(MouseEvent e) {
-                        isHovered = false;
-                        repaint();
-                        setCursor(new Cursor(Cursor.DEFAULT_CURSOR));
-                    }
-
-                    public void mousePressed(MouseEvent e) {
-                        isPressed = true;
-                        repaint();
-                    }
-
-                    public void mouseReleased(MouseEvent e) {
-                        isPressed = false;
-                        repaint();
-                    }
-                });
-            }
+            // Hapus MouseListener
         };
 
         btn.setPreferredSize(new Dimension(width, height));
         btn.setContentAreaFilled(false);
         btn.setFocusPainted(false);
         btn.setBorderPainted(false);
+        // Set cursor tetap hand agar user tahu ini tombol, meski tidak ada efek warna
+        btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
         return btn;
     }
 
@@ -204,7 +174,7 @@ public class AppTheme {
 
     public static class SidebarButton extends JButton {
         private boolean isActive;
-        private boolean isHovered = false;
+        // Hapus isHovered
 
         public SidebarButton(String iconText, boolean initialActive) {
             super(iconText);
@@ -215,20 +185,9 @@ public class AppTheme {
             setFocusPainted(false);
             setBorderPainted(false);
             setHorizontalAlignment(SwingConstants.CENTER);
+            setCursor(new Cursor(Cursor.HAND_CURSOR));
 
-            addMouseListener(new MouseAdapter() {
-                public void mouseEntered(MouseEvent e) {
-                    isHovered = true;
-                    repaint();
-                    setCursor(new Cursor(Cursor.HAND_CURSOR));
-                }
-
-                public void mouseExited(MouseEvent e) {
-                    isHovered = false;
-                    repaint();
-                    setCursor(new Cursor(Cursor.DEFAULT_CURSOR));
-                }
-            });
+            // Hapus MouseListener (No Hover Effect)
         }
 
         public void setActive(boolean isActive) {
@@ -241,15 +200,14 @@ public class AppTheme {
             Graphics2D g2 = (Graphics2D) g.create();
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
+            // Logic Warna: Hanya berubah jika ACTIVE (sedang di halaman tersebut)
             if (isActive) {
                 g2.setColor(new Color(255, 255, 255, 20));
                 g2.fillRoundRect(5, 5, getWidth() - 10, getHeight() - 10, 15, 15);
                 g2.setColor(COLOR_ACTIVE_INDICATOR);
                 g2.fillRoundRect(0, 15, 4, getHeight() - 30, 5, 5);
-            } else if (isHovered) {
-                g2.setColor(new Color(255, 255, 255, 10));
-                g2.fillRoundRect(5, 5, getWidth() - 10, getHeight() - 10, 15, 15);
             }
+            // Bagian else if (isHovered) DIHAPUS
 
             if (isActive) {
                 g2.setColor(Color.WHITE);
@@ -274,12 +232,11 @@ public class AppTheme {
     }
 
     // =========================================================================
-    // 🖼️ 7. IMAGE UTILITIES (BARU)
+    // 🖼️ 7. IMAGE UTILITIES
     // =========================================================================
 
     /**
      * Helper untuk resize gambar dari File Path.
-     * Digunakan oleh: ServerAdmin
      */
     public static ImageIcon scaleImage(String imagePath, int width, int height) {
         if (imagePath == null || imagePath.isEmpty()) {
@@ -295,8 +252,7 @@ public class AppTheme {
     }
 
     /**
-     * Helper untuk resize ImageIcon yang sudah ada (misal dari bytes/network).
-     * Digunakan oleh: VoterClient & Internal
+     * Helper untuk resize ImageIcon yang sudah ada.
      */
     public static ImageIcon scaleImage(ImageIcon icon, int width, int height) {
         if (icon == null)
@@ -305,11 +261,9 @@ public class AppTheme {
             return null;
 
         Image img = icon.getImage();
-        // Gunakan BufferedImage untuk hasil resize berkualitas tinggi
         BufferedImage bi = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g2 = bi.createGraphics();
 
-        // Settings agar gambar mulus (tidak pecah)
         g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
         g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);

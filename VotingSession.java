@@ -5,14 +5,11 @@ import java.util.Set;
 
 /**
  * =============================================================================
- * 📦 VOTING SESSION (DATA MODEL) - V3.1 ROBUST
+ * 📦 VOTING SESSION (DATA MODEL) - V3.2 ENHANCED
  * =============================================================================
- * UPDATE FITUR:
- * - Identity Management: Flag `isFromDatabase` untuk membedakan sesi Live vs
- * Arsip.
- * - Proteksi Integritas Data: Mencegah modifikasi suara pada sesi arsip.
- * - Thread-Safety: Sinkronisasi saat menambah suara.
- * - Reset Support: Mendukung reset suara untuk simulasi/stress test.
+ * UPDATE FITUR V3.2:
+ * - Menambahkan metode `getVoteSummary()` untuk menghasilkan string statistik
+ * yang akan dikirim ke Client (Format: "Nama:Suara,Nama:Suara").
  */
 public class VotingSession {
 
@@ -170,7 +167,7 @@ public class VotingSession {
     }
 
     // =========================================================================
-    // 🏆 WINNER CALCULATION LOGIC
+    // 🏆 WINNER & STATS CALCULATION LOGIC
     // =========================================================================
 
     public String getWinnerResult() {
@@ -199,6 +196,24 @@ public class VotingSession {
             return "Seri / Draw (" + maxVotes + " Suara)";
 
         return winnerName + " (" + maxVotes + " Suara)";
+    }
+
+    /**
+     * NEW V3.2: Menghasilkan string ringkasan untuk detail suara.
+     * Format: "Nama1:10,Nama2:5,Nama3:20"
+     */
+    public String getVoteSummary() {
+        StringBuilder sb = new StringBuilder();
+        int count = 0;
+        for (Map.Entry<String, Integer> entry : voteData.entrySet()) {
+            if (count > 0) {
+                sb.append(","); // Separator antar kandidat
+            }
+            // Format: Nama:JumlahSuara
+            sb.append(entry.getKey()).append(":").append(entry.getValue());
+            count++;
+        }
+        return sb.toString();
     }
 
     // =========================================================================

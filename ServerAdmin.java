@@ -13,15 +13,12 @@ import javax.swing.table.JTableHeader;
 
 /**
  * =============================================================================
- * 🖥️ SERVER ADMIN: IMPROVED UX (V3.1)
+ * 🖥️ SERVER ADMIN: IMPROVED UX (V3.2)
  * =============================================================================
- * UPDATE LOG:
- * - Hapus Login Admin.
- * - Navigasi Baru: Dashboard, Riwayat, Create, Stress Test.
- * - Dashboard: Top 5 Recent Sessions.
- * - History: Full List & Access to Monitor.
- * - Monitor: Hidden View dengan tombol Back & Layout Fix.
- * - Stress Test: Advanced Options (Target, Safe/Unsafe, Save/NoSave).
+ * UPDATE LOG V3.2:
+ * - Mengubah Statistik "Sesi Terpilih" menjadi "Total Kegiatan".
+ * - Update Protokol Server: Mengirim data detail suara (summary string) ke
+ * client.
  */
 public class ServerAdmin extends JFrame {
 
@@ -48,16 +45,17 @@ public class ServerAdmin extends JFrame {
 
     // Sidebar Buttons
     private AppTheme.SidebarButton btnNavDash;
-    private AppTheme.SidebarButton btnNavHistory; // NEW
+    private AppTheme.SidebarButton btnNavHistory;
     private AppTheme.SidebarButton btnNavCreate;
     private AppTheme.SidebarButton btnStressTest;
 
     // Dashboard Components
-    private JLabel lblStatTotalVotes, lblStatActiveSession, lblStatClients;
+    // UPDATED: lblStatActiveSession diganti menjadi lblStatTotalSessions
+    private JLabel lblStatTotalVotes, lblStatTotalSessions, lblStatClients;
     private DefaultTableModel tableModelDashboard; // Hanya 5 teratas
     private JTable dashboardTable;
 
-    // History Components (NEW)
+    // History Components
     private DefaultTableModel tableModelHistory; // Semua data
     private JTable historyTable;
 
@@ -65,7 +63,7 @@ public class ServerAdmin extends JFrame {
     private GraphPanel liveGraphPanel;
     private JLabel lblGraphTitle, lblGraphStatus;
     private JButton btnEndVote;
-    private JButton btnBackNavigation; // NEW: Tombol Kembali
+    private JButton btnBackNavigation;
     private JPanel monitorHeaderPanel;
 
     // Create Session Components
@@ -74,7 +72,7 @@ public class ServerAdmin extends JFrame {
 
     public ServerAdmin() {
         // 1. SKIP LOGIN - Langsung Masuk
-        setTitle("Admin Dashboard - E-Voting System (V3.1)");
+        setTitle("Admin Dashboard - E-Voting System (V3.2)");
         setSize(1280, 800);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
@@ -159,9 +157,9 @@ public class ServerAdmin extends JFrame {
         mainContentPanel.setBackground(AppTheme.COLOR_BACKGROUND_APP);
 
         mainContentPanel.add(createPageDashboard(), "PAGE_DASHBOARD");
-        mainContentPanel.add(createPageHistory(), "PAGE_HISTORY"); // NEW PAGE
+        mainContentPanel.add(createPageHistory(), "PAGE_HISTORY");
         mainContentPanel.add(createPageCreateSession(), "PAGE_CREATE");
-        mainContentPanel.add(createPageMonitor(), "PAGE_MONITOR"); // Hidden from Sidebar
+        mainContentPanel.add(createPageMonitor(), "PAGE_MONITOR");
 
         add(mainContentPanel, BorderLayout.CENTER);
 
@@ -215,11 +213,12 @@ public class ServerAdmin extends JFrame {
         statsGrid.setPreferredSize(new Dimension(0, 140));
 
         lblStatTotalVotes = new JLabel("0");
-        lblStatActiveSession = new JLabel("-");
+        lblStatTotalSessions = new JLabel("0"); // UPDATED: Default 0
         lblStatClients = new JLabel("0");
 
         statsGrid.add(createStatCard("Total Suara (Live)", lblStatTotalVotes));
-        statsGrid.add(createStatCard("Sesi Terpilih", lblStatActiveSession));
+        // UPDATED: Title changed from "Sesi Terpilih" to "Total Kegiatan"
+        statsGrid.add(createStatCard("Total Kegiatan", lblStatTotalSessions));
         statsGrid.add(createStatCard("Client Terhubung", lblStatClients));
 
         // Tabel Dashboard (Limited 5)
@@ -581,6 +580,11 @@ public class ServerAdmin extends JFrame {
 
     private void updateDashboardTable() {
         tableModelDashboard.setRowCount(0);
+
+        // UPDATED: Logic Dashboard
+        // Menampilkan Total Kegiatan (Jumlah List History)
+        lblStatTotalSessions.setText(String.valueOf(historySessions.size()));
+
         int startIdx = historySessions.size() - 1;
         int endIdx = Math.max(0, historySessions.size() - 5); // Limit 5
 
@@ -751,10 +755,14 @@ public class ServerAdmin extends JFrame {
         try (DataInputStream in = new DataInputStream(socket.getInputStream());
                 DataOutputStream out = new DataOutputStream(socket.getOutputStream())) {
 
+            // UPDATED: PROTOCOL V3.2 (WITH VOTE SUMMARY)
+            // Format: "Title;Active;Winner;DetailSummaryString#"
             StringBuilder sbHistory = new StringBuilder("HISTORY_LIST|");
             for (VotingSession vs : historySessions) {
-                sbHistory.append(vs.getTitle()).append(";").append(vs.isActive()).append(";")
-                        .append(vs.getWinnerResult()).append("#");
+                sbHistory.append(vs.getTitle()).append(";")
+                        .append(vs.isActive()).append(";")
+                        .append(vs.getWinnerResult()).append(";")
+                        .append(vs.getVoteSummary()).append("#"); // NEW: Add Detail Summary
             }
             out.writeUTF(sbHistory.toString());
 

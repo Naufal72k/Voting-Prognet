@@ -5,13 +5,13 @@ import java.util.Set;
 
 /**
  * =============================================================================
- * 📦 VOTING SESSION (DATA MODEL)
+ * 📦 VOTING SESSION (DATA MODEL) - V3 ROBUST
  * =============================================================================
- * Merepresentasikan satu sesi pemilihan (Batch).
- * * UPDATE TERBARU:
- * - Menambahkan Status Sesi (Active/Ended).
- * - Menambahkan Logika penguncian suara jika sesi berakhir.
- * - Menambahkan Logika penentuan Pemenang (Winner Calculation).
+ * UPDATE FITUR:
+ * - Identity Management: Flag `isFromDatabase` untuk membedakan sesi Live vs
+ * Arsip.
+ * - Proteksi Integritas Data: Mencegah modifikasi suara pada sesi arsip.
+ * - Thread-Safety: Sinkronisasi saat menambah suara.
  */
 public class VotingSession {
 
@@ -25,31 +25,41 @@ public class VotingSession {
     // Waktu & Status
     private long startTime;
     private long endTime;
-    private boolean isActive; // TRUE = Sedang Berjalan, FALSE = Selesai
+
+    // --- IDENTITY MANAGEMENT (Goals 1) ---
+    private boolean isActive; // TRUE = Sedang Berjalan (Live)
+    private boolean isFromDatabase; // TRUE = Data Arsip dari MySQL (Read-Only)
 
     // LinkedHashMap menjaga urutan kandidat sesuai input awal
     private Map<String, Integer> voteData;
+    private Map<String, String> candidateImages;
 
     /**
      * Constructor Utama.
-     * Dipanggil saat Admin membuat sesi baru.
+     * Membuat Sesi BARU (Live).
      */
-    public VotingSession(String title, String[] candidates) {
+    public VotingSession(String title, String[] candidates, String[] imagePaths) {
         this.sessionTitle = title;
         this.voteData = new LinkedHashMap<>();
+        this.candidateImages = new LinkedHashMap<>();
 
-        // Setup Waktu & Status Awal
+        // Default State untuk Sesi Baru
         this.startTime = System.currentTimeMillis();
-        this.isActive = true; // Sesi langsung aktif saat dibuat
+        this.isActive = true;
+        this.isFromDatabase = false; // Default: Bukan dari DB (Live Session)
 
-        // Default Styles
         this.description = "Sesi Pemungutan Suara Resmi";
         this.themeColor = AppTheme.COLOR_PRIMARY_START;
 
-        // Inisialisasi suara 0 untuk setiap kandidat
-        for (String name : candidates) {
-            if (name != null && !name.trim().isEmpty()) {
-                voteData.put(name.trim(), 0);
+        if (candidates != null) {
+            for (int i = 0; i < candidates.length; i++) {
+                String name = candidates[i].trim();
+                String path = (imagePaths != null && i < imagePaths.length) ? imagePaths[i] : "";
+
+                if (!name.isEmpty()) {
+                    voteData.put(name, 0);
+                    candidateImages.put(name, path);
+                }
             }
         }
     }
@@ -59,40 +69,41 @@ public class VotingSession {
     // =========================================================================
 
     /**
-     * 🛡️ SAFE METHOD: Menambah suara secara thread-safe.
-     * Hanya menerima suara jika sesi masih AKTIF (isActive == true).
+     * Menambah suara dengan proteksi penuh.
      */
     public synchronized void addVote(String candidateName) {
-        // Cek Status: Jika sudah selesai, tolak suara.
+        // 1. Cek apakah sesi masih aktif
         if (!isActive) {
             System.out.println("⚠️ REJECTED: Sesi sudah ditutup.");
             return;
         }
 
+        // 2. Cek apakah ini data arsip (Goals 1)
+        if (isFromDatabase) {
+            System.out.println("⚠️ REJECTED: Tidak bisa mengubah data arsip database!");
+            return;
+        }
+
+        // 3. Tambahkan suara
         if (voteData.containsKey(candidateName)) {
             voteData.put(candidateName, voteData.get(candidateName) + 1);
             System.out.println("🗳️ VOTE LOG: " + candidateName + " +1");
         }
     }
 
-    /**
-     * 💀 UNSAFE METHOD: Chaos Mode.
-     * Tetap mengecek isActive agar Stress Test berhenti saat sesi di-stop admin.
-     */
     public void addVoteUnsafe(String candidateName) {
-        if (!isActive)
-            return; // Tolak jika sesi mati
+        // Proteksi juga diterapkan di mode unsafe
+        if (!isActive || isFromDatabase)
+            return;
 
         if (voteData.containsKey(candidateName)) {
             int currentVotes = voteData.get(candidateName);
             try {
-                // Simulasi Race Condition (Jeda)
                 Thread.sleep((long) (Math.random() * 10));
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
             voteData.put(candidateName, currentVotes + 1);
-            System.out.println("💀 CHAOS VOTE: " + candidateName + " +1 (Unsafe)");
         }
     }
 
@@ -101,30 +112,54 @@ public class VotingSession {
     // =========================================================================
 
     /**
-     * Mengakhiri sesi pemilihan (Finalisasi).
-     * Setelah dipanggil, suara tidak bisa masuk lagi.
+     * Digunakan oleh Admin untuk MENGHENTIKAN sesi Live.
      */
     public void endSession() {
         this.isActive = false;
         this.endTime = System.currentTimeMillis();
+        // isFromDatabase tetap FALSE karena ini baru saja selesai, belum tentu
+        // tersimpan
         System.out.println("🏁 SESSION ENDED: " + sessionTitle);
     }
 
-    /**
-     * Mengecek apakah sesi masih berjalan.
-     */
     public boolean isActive() {
         return isActive;
+    }
+
+    /**
+     * Mengembalikan status apakah sesi ini adalah arsip dari database.
+     */
+    public boolean isFromDatabase() {
+        return isFromDatabase;
+    }
+
+    // =========================================================================
+    // 🛠️ DATABASE RESTORATION HELPERS
+    // =========================================================================
+
+    /**
+     * Dipanggil oleh DatabaseManager saat me-load riwayat.
+     * Mengunci objek ini sebagai ARSIP (Read-Only).
+     */
+    public void forceEndSession() {
+        this.isActive = false;
+        this.isFromDatabase = true; // Menandai sebagai Arsip DB
+    }
+
+    public void overwriteStartTime(long timestamp) {
+        this.startTime = timestamp;
+    }
+
+    public void setVoteCountManual(String candidateName, int count) {
+        if (voteData.containsKey(candidateName)) {
+            voteData.put(candidateName, count);
+        }
     }
 
     // =========================================================================
     // 🏆 WINNER CALCULATION LOGIC
     // =========================================================================
 
-    /**
-     * Mengembalikan String info pemenang.
-     * Contoh: "Budi (50 Suara)" atau "SERI (20 Suara)"
-     */
     public String getWinnerResult() {
         if (voteData.isEmpty())
             return "Tidak ada data";
@@ -133,53 +168,40 @@ public class VotingSession {
         int maxVotes = -1;
         boolean isTie = false;
 
-        // Loop cari nilai tertinggi
         for (Map.Entry<String, Integer> entry : voteData.entrySet()) {
             int votes = entry.getValue();
 
             if (votes > maxVotes) {
                 maxVotes = votes;
                 winnerName = entry.getKey();
-                isTie = false; // Reset status seri karena ada record baru tertinggi
+                isTie = false;
             } else if (votes == maxVotes && maxVotes > 0) {
-                isTie = true; // Ada nilai yang sama tingginya
+                isTie = true;
             }
         }
 
         if (maxVotes == 0)
             return "Belum ada suara";
         if (isTie)
-            return "Hasl Seri / Draw (" + maxVotes + " Suara)";
+            return "Seri / Draw (" + maxVotes + " Suara)";
 
         return winnerName + " (" + maxVotes + " Suara)";
     }
 
     // =========================================================================
-    // 🎨 SETTERS & GETTERS
+    // 🎨 GETTERS
     // =========================================================================
-
-    public void setDescription(String description) {
-        this.description = description;
-    }
-
-    public void setThemeColor(Color color) {
-        this.themeColor = color;
-    }
 
     public String getTitle() {
         return sessionTitle;
     }
 
-    public String getDescription() {
-        return description;
-    }
-
-    public Color getThemeColor() {
-        return themeColor;
-    }
-
     public Set<String> getCandidates() {
         return voteData.keySet();
+    }
+
+    public String getCandidateImage(String name) {
+        return candidateImages.getOrDefault(name, "");
     }
 
     public int getVoteCount(String candidateName) {
@@ -198,20 +220,11 @@ public class VotingSession {
         return startTime;
     }
 
-    public long getEndTime() {
-        return endTime;
-    }
-
-    /**
-     * Mengembalikan salinan data agar data asli aman.
-     */
     public Map<String, Integer> getAllData() {
         return new LinkedHashMap<>(voteData);
     }
 
-    @Override
-    public String toString() {
-        String status = isActive ? " [LIVE]" : " [ENDED]";
-        return sessionTitle + status + " - " + getTotalVotes() + " Suara";
+    public Map<String, String> getAllImages() {
+        return new LinkedHashMap<>(candidateImages);
     }
 }

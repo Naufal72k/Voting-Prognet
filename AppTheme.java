@@ -1,6 +1,7 @@
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.image.BufferedImage;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 
@@ -10,9 +11,8 @@ import javax.swing.border.EmptyBorder;
  * =============================================================================
  * "Pabrik Komponen" untuk merender UI Modern.
  * UPDATE:
+ * - Menambahkan Image Processing Utilities (scaleImage).
  * - Menambahkan Warna Status (Live/Ended).
- * - Menambahkan Factory Method untuk Status Badge.
- * - Sidebar Button kompatibel untuk Voter Client & Admin Server.
  */
 public class AppTheme {
 
@@ -37,7 +37,7 @@ public class AppTheme {
     public static final Color COLOR_TEXT_MUTED = new Color(100, 116, 139);
     public static final Color COLOR_TEXT_LIGHT = Color.WHITE;
 
-    // Warna Status (BARU)
+    // Warna Status
     public static final Color COLOR_STATUS_LIVE = new Color(22, 163, 74); // Green 600
     public static final Color COLOR_STATUS_ENDED = new Color(220, 38, 38); // Red 600
 
@@ -67,8 +67,6 @@ public class AppTheme {
             FONT_H3 = new Font(fontName, Font.BOLD, 16);
             FONT_BODY = new Font(fontName, Font.PLAIN, 14);
             FONT_BOLD = new Font(fontName, Font.BOLD, 14);
-
-            // Emoji Font besar untuk navigasi Icon-Only
             FONT_SIDEBAR_ICON = new Font("Segoe UI Emoji", Font.PLAIN, 28);
         } catch (Exception e) {
             FONT_H1 = new Font("SansSerif", Font.BOLD, 24);
@@ -114,18 +112,15 @@ public class AppTheme {
     }
 
     // =========================================================================
-    // 🏭 4. COMPONENT FACTORY: STATUS BADGE (BARU)
+    // 🏭 4. COMPONENT FACTORY: STATUS BADGE
     // =========================================================================
 
-    /**
-     * Membuat Label Status yang konsisten (LIVE / SELESAI).
-     */
     public static JLabel createStatusLabel(boolean isActive) {
         String text = isActive ? "● SEDANG BERLANGSUNG" : "● SELESAI";
         Color color = isActive ? COLOR_STATUS_LIVE : COLOR_STATUS_ENDED;
 
         JLabel lbl = new JLabel(text);
-        lbl.setFont(new Font("Segoe UI", Font.BOLD, 11)); // Ukuran font sedikit kecil untuk badge
+        lbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
         lbl.setForeground(color);
         return lbl;
     }
@@ -204,13 +199,9 @@ public class AppTheme {
     }
 
     // =========================================================================
-    // 🏭 6. COMPONENT FACTORY: SIDEBAR BUTTON (ICON ONLY)
+    // 🏭 6. COMPONENT FACTORY: SIDEBAR BUTTON
     // =========================================================================
 
-    /**
-     * Tombol Navigasi Sidebar (Icon Only).
-     * Digunakan oleh ServerAdmin dan VoterClient.
-     */
     public static class SidebarButton extends JButton {
         private boolean isActive;
         private boolean isHovered = false;
@@ -219,7 +210,7 @@ public class AppTheme {
             super(iconText);
             this.isActive = initialActive;
 
-            setPreferredSize(new Dimension(70, 60)); // Square Slim
+            setPreferredSize(new Dimension(70, 60));
             setContentAreaFilled(false);
             setFocusPainted(false);
             setBorderPainted(false);
@@ -250,19 +241,16 @@ public class AppTheme {
             Graphics2D g2 = (Graphics2D) g.create();
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-            // 1. Background
             if (isActive) {
-                g2.setColor(new Color(255, 255, 255, 20)); // Active BG
+                g2.setColor(new Color(255, 255, 255, 20));
                 g2.fillRoundRect(5, 5, getWidth() - 10, getHeight() - 10, 15, 15);
-
-                g2.setColor(COLOR_ACTIVE_INDICATOR); // Indicator
+                g2.setColor(COLOR_ACTIVE_INDICATOR);
                 g2.fillRoundRect(0, 15, 4, getHeight() - 30, 5, 5);
             } else if (isHovered) {
-                g2.setColor(new Color(255, 255, 255, 10)); // Hover BG
+                g2.setColor(new Color(255, 255, 255, 10));
                 g2.fillRoundRect(5, 5, getWidth() - 10, getHeight() - 10, 15, 15);
             }
 
-            // 2. Icon / Text
             if (isActive) {
                 g2.setColor(Color.WHITE);
                 g2.setFont(FONT_SIDEBAR_ICON);
@@ -271,7 +259,6 @@ public class AppTheme {
                 g2.setFont(FONT_SIDEBAR_ICON);
             }
 
-            // Center Text
             FontMetrics fm = g2.getFontMetrics();
             String txt = getText();
             int x = (getWidth() - fm.stringWidth(txt)) / 2;
@@ -284,6 +271,53 @@ public class AppTheme {
 
     public static SidebarButton createSidebarButton(String text, boolean isActive) {
         return new SidebarButton(text, isActive);
+    }
+
+    // =========================================================================
+    // 🖼️ 7. IMAGE UTILITIES (BARU)
+    // =========================================================================
+
+    /**
+     * Helper untuk resize gambar dari File Path.
+     * Digunakan oleh: ServerAdmin
+     */
+    public static ImageIcon scaleImage(String imagePath, int width, int height) {
+        if (imagePath == null || imagePath.isEmpty()) {
+            return null;
+        }
+        try {
+            ImageIcon icon = new ImageIcon(imagePath);
+            return scaleImage(icon, width, height);
+        } catch (Exception e) {
+            System.err.println("Gagal memuat gambar: " + imagePath);
+            return null;
+        }
+    }
+
+    /**
+     * Helper untuk resize ImageIcon yang sudah ada (misal dari bytes/network).
+     * Digunakan oleh: VoterClient & Internal
+     */
+    public static ImageIcon scaleImage(ImageIcon icon, int width, int height) {
+        if (icon == null)
+            return null;
+        if (icon.getIconWidth() <= 0 || icon.getIconHeight() <= 0)
+            return null;
+
+        Image img = icon.getImage();
+        // Gunakan BufferedImage untuk hasil resize berkualitas tinggi
+        BufferedImage bi = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g2 = bi.createGraphics();
+
+        // Settings agar gambar mulus (tidak pecah)
+        g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+        g2.drawImage(img, 0, 0, width, height, null);
+        g2.dispose();
+
+        return new ImageIcon(bi);
     }
 
     // =========================================================================

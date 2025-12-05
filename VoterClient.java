@@ -1,20 +1,27 @@
 import java.awt.*;
 import java.awt.event.*;
+import java.awt.geom.Ellipse2D;
+import java.awt.image.BufferedImage;
 import java.io.*;
 import java.net.Socket;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 
 /**
  * =============================================================================
- * 🗳️ VOTER CLIENT: MODERN LAYOUT (SIDEBAR + GALLERY)
+ * 🗳️ VOTER CLIENT: IMPROVED UX (V3)
  * =============================================================================
- * UPDATE FITUR:
- * - Layout Sidebar mirip Admin (Navigasi Kiri).
- * - Halaman "Galeri Pemilihan" menampilkan semua sesi (Aktif & Selesai).
- * - Logic Parsing Protokol Server yang baru (History List).
+ * FITUR BARU:
+ * 1. Login/Auth Overlay (NIK).
+ * 2. Navigasi Sidebar "Vote" yang Cerdas (Bukan Blind Jump).
+ * 3. Konfirmasi sebelum masuk Bilik Suara.
+ * 4. Visualisasi Status "SUDAH MEMILIH" (Persistence State).
  */
 public class VoterClient extends JFrame {
 
@@ -25,27 +32,36 @@ public class VoterClient extends JFrame {
     private DataOutputStream out;
     private DataInputStream in;
 
+    // Identitas Pemilih
+    private String voterNIK = "";
+    private boolean isLoggedIn = false;
+
     // Data Sesi
     private List<SessionInfo> sessionList = new ArrayList<>();
-    private SessionInfo activeSession = null; // Sesi yang sedang LIVE
-    private String[] activeCandidates = null; // Kandidat untuk sesi LIVE
+    private SessionInfo activeSession = null; // Sesi yang sedang LIVE data-nya dari server
 
-    // Security Flag (Per Sesi Runtime)
-    private boolean hasVoted = false;
+    // Data Kandidat Aktif (Nama & Foto)
+    private List<String> activeCandidates = new ArrayList<>();
+    private Map<String, ImageIcon> candidatePhotos = new HashMap<>();
+
+    // Security & State Flag
+    // Menyimpan Judul Sesi yang sudah diikuti user selama aplikasi menyala
+    private Set<String> votedSessions = new HashSet<>();
 
     // =========================================================================
     // 🎨 UI COMPONENTS
     // =========================================================================
     private CardLayout contentLayout;
     private JPanel mainContentPanel;
-    private JPanel galleryContainer; // Container untuk kartu-kartu sesi
+    private JPanel galleryContainer;
+    private JPanel sidebarPanel; // Disimpan agar bisa di-disable saat belum login
 
     // Sidebar Buttons
     private AppTheme.SidebarButton btnNavGallery;
     private AppTheme.SidebarButton btnNavVote;
 
     public VoterClient() {
-        setTitle("E-Voting Terminal - Client");
+        setTitle("E-Voting Terminal - Client (V3 UX Upgrade)");
         setSize(1280, 800);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
@@ -54,7 +70,11 @@ public class VoterClient extends JFrame {
         initSidebar();
         initContentArea();
 
-        // Start Connection di Thread terpisah
+        // Mulai di halaman Login, Sidebar dimatikan dulu
+        setSidebarEnabled(false);
+        contentLayout.show(mainContentPanel, "PAGE_LOGIN");
+
+        // Start Connection di background
         new Thread(this::connectAndSetup).start();
     }
 
@@ -62,45 +82,49 @@ public class VoterClient extends JFrame {
     // 🏗️ LAYOUT: SIDEBAR (WEST)
     // =========================================================================
     private void initSidebar() {
-        JPanel sidebar = new JPanel();
-        sidebar.setLayout(new BoxLayout(sidebar, BoxLayout.Y_AXIS));
-        sidebar.setBackground(AppTheme.COLOR_SIDEBAR);
-        sidebar.setPreferredSize(new Dimension(90, getHeight()));
-        sidebar.setBorder(new EmptyBorder(30, 0, 0, 0));
+        sidebarPanel = new JPanel();
+        sidebarPanel.setLayout(new BoxLayout(sidebarPanel, BoxLayout.Y_AXIS));
+        sidebarPanel.setBackground(AppTheme.COLOR_SIDEBAR);
+        sidebarPanel.setPreferredSize(new Dimension(90, getHeight()));
+        sidebarPanel.setBorder(new EmptyBorder(30, 0, 0, 0));
 
-        // Logo
         JLabel lblLogo = new JLabel("🗳️");
         lblLogo.setFont(new Font("Segoe UI Emoji", Font.PLAIN, 40));
         lblLogo.setForeground(Color.WHITE);
         lblLogo.setAlignmentX(Component.CENTER_ALIGNMENT);
 
-        // Menu Buttons
-        btnNavGallery = AppTheme.createSidebarButton("🏠", true); // Home / Gallery
-        btnNavVote = AppTheme.createSidebarButton("✍️", false); // Vote / Bilik Suara
+        btnNavGallery = AppTheme.createSidebarButton("🏠", true);
+        btnNavVote = AppTheme.createSidebarButton("✍️", false);
 
-        // Listener Navigasi
-        btnNavGallery.addActionListener(e -> switchPage("PAGE_GALLERY", btnNavGallery));
-        btnNavVote.addActionListener(e -> {
-            if (activeSession != null) {
-                switchPage("PAGE_BALLOT", btnNavVote);
-            } else {
-                JOptionPane.showMessageDialog(this, "Tidak ada sesi voting yang sedang aktif.");
-            }
+        // --- NAVIGASI GALERI ---
+        btnNavGallery.addActionListener(e -> {
+            refreshGalleryUI(); // Refresh visual status (voted/not)
+            switchPage("PAGE_GALLERY", btnNavGallery);
         });
 
-        sidebar.add(lblLogo);
-        sidebar.add(Box.createVerticalStrut(50));
-        addSidebarItem(sidebar, btnNavGallery);
-        addSidebarItem(sidebar, btnNavVote);
-        sidebar.add(Box.createVerticalGlue());
+        // --- NAVIGASI VOTE (CERDAS) ---
+        // Goals 1: Mencegah Blind Jump
+        btnNavVote.addActionListener(e -> handleVoteNavigationClick());
 
-        add(sidebar, BorderLayout.WEST);
+        sidebarPanel.add(lblLogo);
+        sidebarPanel.add(Box.createVerticalStrut(50));
+        addSidebarItem(sidebarPanel, btnNavGallery);
+        addSidebarItem(sidebarPanel, btnNavVote);
+        sidebarPanel.add(Box.createVerticalGlue());
+
+        add(sidebarPanel, BorderLayout.WEST);
     }
 
     private void addSidebarItem(JPanel sidebar, JComponent item) {
         item.setAlignmentX(Component.CENTER_ALIGNMENT);
         sidebar.add(item);
         sidebar.add(Box.createVerticalStrut(15));
+    }
+
+    private void setSidebarEnabled(boolean enabled) {
+        btnNavGallery.setEnabled(enabled);
+        btnNavVote.setEnabled(enabled);
+        sidebarPanel.setVisible(enabled);
     }
 
     // =========================================================================
@@ -111,11 +135,12 @@ public class VoterClient extends JFrame {
         mainContentPanel = new JPanel(contentLayout);
         mainContentPanel.setBackground(AppTheme.COLOR_BACKGROUND_APP);
 
-        // Tambahkan Halaman-Halaman
+        // Urutan Halaman
+        mainContentPanel.add(createPageLogin(), "PAGE_LOGIN");
         mainContentPanel.add(createPageLoading(), "PAGE_LOADING");
         mainContentPanel.add(createPageGallery(), "PAGE_GALLERY");
         mainContentPanel.add(createPageSuccess(), "PAGE_SUCCESS");
-        // PAGE_BALLOT akan dibuat dinamis saat data diterima
+        // PAGE_BALLOT ditambahkan dinamis
 
         add(mainContentPanel, BorderLayout.CENTER);
     }
@@ -124,7 +149,79 @@ public class VoterClient extends JFrame {
         contentLayout.show(mainContentPanel, pageName);
         btnNavGallery.setActive(false);
         btnNavVote.setActive(false);
-        activeButton.setActive(true);
+        if (activeButton != null) {
+            activeButton.setActive(true);
+        }
+    }
+
+    // =========================================================================
+    // 🔐 PAGE 0: LOGIN OVERLAY (Goals 4)
+    // =========================================================================
+    private JPanel createPageLogin() {
+        JPanel panel = new JPanel(new GridBagLayout());
+        panel.setBackground(AppTheme.COLOR_BACKGROUND_APP);
+
+        JPanel card = AppTheme.createShadowPanel();
+        card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
+        card.setBackground(Color.WHITE);
+        card.setPreferredSize(new Dimension(400, 350));
+
+        JLabel icon = new JLabel("🔐");
+        icon.setFont(new Font("Segoe UI Emoji", Font.PLAIN, 60));
+        icon.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        JLabel title = new JLabel("Login Pemilih");
+        title.setFont(AppTheme.FONT_H1);
+        title.setForeground(AppTheme.COLOR_TEXT_MAIN);
+        title.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        JLabel subtitle = new JLabel("Masukkan NIK / ID Anda untuk melanjutkan");
+        subtitle.setFont(AppTheme.FONT_BODY);
+        subtitle.setForeground(AppTheme.COLOR_TEXT_MUTED);
+        subtitle.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        JTextField txtNik = new JTextField();
+        AppTheme.styleTextField(txtNik);
+        txtNik.setMaximumSize(new Dimension(300, 40));
+        txtNik.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        JButton btnLogin = AppTheme.createGradientButton("MASUK KE SISTEM", 300, 45);
+        btnLogin.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        // Logic Login
+        ActionListener loginAction = e -> {
+            String input = txtNik.getText().trim();
+            if (input.isEmpty()) {
+                JOptionPane.showMessageDialog(this, "NIK tidak boleh kosong!", "Peringatan",
+                        JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            // Simpan Identitas
+            voterNIK = input;
+            isLoggedIn = true;
+
+            // Buka Akses
+            setSidebarEnabled(true);
+            refreshGalleryUI();
+            switchPage("PAGE_GALLERY", btnNavGallery);
+        };
+
+        btnLogin.addActionListener(loginAction);
+        txtNik.addActionListener(loginAction); // Enter key support
+
+        card.add(Box.createVerticalStrut(20));
+        card.add(icon);
+        card.add(Box.createVerticalStrut(10));
+        card.add(title);
+        card.add(subtitle);
+        card.add(Box.createVerticalStrut(30));
+        card.add(txtNik);
+        card.add(Box.createVerticalStrut(20));
+        card.add(btnLogin);
+        card.add(Box.createVerticalGlue());
+
+        panel.add(card);
+        return panel;
     }
 
     // =========================================================================
@@ -133,7 +230,7 @@ public class VoterClient extends JFrame {
     private JPanel createPageLoading() {
         JPanel panel = new JPanel(new GridBagLayout());
         panel.setBackground(Color.WHITE);
-        JLabel lbl = new JLabel("Menghubungkan ke Server & Mengambil Data...");
+        JLabel lbl = new JLabel("Menghubungkan ke Server & Mengunduh Aset...");
         lbl.setFont(AppTheme.FONT_H2);
         lbl.setForeground(AppTheme.COLOR_TEXT_MUTED);
         panel.add(lbl);
@@ -141,20 +238,29 @@ public class VoterClient extends JFrame {
     }
 
     // =========================================================================
-    // 📄 PAGE 2: GALLERY PEMILIHAN (HISTORY)
+    // 📄 PAGE 2: GALLERY PEMILIHAN
     // =========================================================================
     private JPanel createPageGallery() {
         JPanel panel = new JPanel(new BorderLayout());
         panel.setOpaque(false);
         panel.setBorder(new EmptyBorder(40, 40, 40, 40));
 
-        // Header
+        JPanel header = new JPanel(new BorderLayout());
+        header.setOpaque(false);
+        
         JLabel lblTitle = new JLabel("Galeri Pemilihan");
         lblTitle.setFont(AppTheme.FONT_H1);
         lblTitle.setForeground(AppTheme.COLOR_TEXT_MAIN);
-        panel.add(lblTitle, BorderLayout.NORTH);
+        
+        JLabel lblUser = new JLabel("Login sebagai: " + (voterNIK.isEmpty() ? "Tamu" : voterNIK));
+        lblUser.setFont(AppTheme.FONT_BODY);
+        lblUser.setForeground(AppTheme.COLOR_PRIMARY_START);
+        
+        header.add(lblTitle, BorderLayout.WEST);
+        header.add(lblUser, BorderLayout.EAST);
 
-        // Grid Container untuk Kartu
+        panel.add(header, BorderLayout.NORTH);
+
         galleryContainer = new JPanel(new FlowLayout(FlowLayout.LEFT, 30, 30));
         galleryContainer.setOpaque(false);
 
@@ -168,31 +274,43 @@ public class VoterClient extends JFrame {
         return panel;
     }
 
-    /**
-     * Membuat Kartu UI untuk satu sesi pemilihan.
-     */
     private JPanel createSessionCard(SessionInfo session) {
         JPanel card = AppTheme.createShadowPanel();
-        card.setPreferredSize(new Dimension(300, 220));
+        card.setPreferredSize(new Dimension(300, 240)); // Tinggi disesuaikan
         card.setLayout(new BorderLayout());
         card.setBackground(Color.WHITE);
 
-        // Header Kartu: Status
+        // Cek apakah user sudah memilih di sesi ini (Goals 3)
+        boolean hasVotedInThisSession = votedSessions.contains(session.title);
+
+        // --- TOP PANEL (Status) ---
         JPanel topPanel = new JPanel(new BorderLayout());
         topPanel.setOpaque(false);
-        JLabel lblStatus = new JLabel(session.isActive ? "● LIVE" : "● SELESAI");
+        
+        JLabel lblStatus;
+        if (hasVotedInThisSession) {
+            lblStatus = new JLabel("● SUDAH MEMILIH");
+            lblStatus.setForeground(Color.GRAY);
+        } else {
+            lblStatus = new JLabel(session.isActive ? "● LIVE" : "● SELESAI");
+            lblStatus.setForeground(session.isActive ? new Color(22, 163, 74) : new Color(220, 38, 38));
+        }
         lblStatus.setFont(new Font("Segoe UI", Font.BOLD, 12));
-        lblStatus.setForeground(session.isActive ? new Color(22, 163, 74) : new Color(220, 38, 38));
         topPanel.add(lblStatus, BorderLayout.WEST);
+        
+        if (hasVotedInThisSession) {
+            JLabel badge = new JLabel("✅");
+            topPanel.add(badge, BorderLayout.EAST);
+        }
 
-        // Body: Judul
+        // --- CENTER PANEL (Info) ---
         JPanel centerPanel = new JPanel();
         centerPanel.setLayout(new BoxLayout(centerPanel, BoxLayout.Y_AXIS));
         centerPanel.setOpaque(false);
 
         JLabel lblTitle = new JLabel("<html>" + session.title + "</html>");
         lblTitle.setFont(AppTheme.FONT_H2);
-        lblTitle.setForeground(AppTheme.COLOR_TEXT_MAIN);
+        lblTitle.setForeground(hasVotedInThisSession ? AppTheme.COLOR_TEXT_MUTED : AppTheme.COLOR_TEXT_MAIN);
 
         JLabel lblWinner = new JLabel("Pemenang:");
         lblWinner.setFont(new Font("Segoe UI", Font.PLAIN, 12));
@@ -208,26 +326,29 @@ public class VoterClient extends JFrame {
         centerPanel.add(lblWinner);
         centerPanel.add(lblWinnerName);
 
-        // Footer: Tombol Aksi
-        JButton btnAction = AppTheme.createGradientButton(session.isActive ? "PILIH SEKARANG" : "LIHAT DETAIL", 250,
-                40);
-        btnAction.setFont(new Font("Segoe UI", Font.BOLD, 12));
-
-        btnAction.addActionListener(e -> {
-            if (session.isActive) {
-                // Masuk ke Bilik Suara
-                if (activeSession != null && activeSession.title.equals(session.title)) {
-                    switchPage("PAGE_BALLOT", btnNavVote);
+        // --- BOTTOM PANEL (Action) ---
+        JButton btnAction;
+        
+        if (hasVotedInThisSession) {
+            // Jika sudah memilih, tombol mati
+            btnAction = new JButton("SUDAH MEMILIH");
+            btnAction.setEnabled(false);
+            btnAction.setBackground(Color.LIGHT_GRAY);
+            btnAction.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            btnAction.setPreferredSize(new Dimension(250, 40));
+        } else {
+            // Jika belum memilih
+            btnAction = AppTheme.createGradientButton(session.isActive ? "PILIH SEKARANG" : "LIHAT DETAIL", 250, 40);
+            btnAction.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            
+            btnAction.addActionListener(e -> {
+                if (session.isActive) {
+                    attemptToEnterBallot(session.title);
                 } else {
-                    JOptionPane.showMessageDialog(this, "Data sesi belum tersinkronisasi. Coba refresh.");
+                    JOptionPane.showMessageDialog(this, "Sesi Berakhir. Pemenang: " + session.winner);
                 }
-            } else {
-                // Tampilkan Info Selesai
-                JOptionPane.showMessageDialog(this,
-                        "Pemilihan ini telah berakhir.\nPemenang: " + session.winner,
-                        "Hasil Akhir", JOptionPane.INFORMATION_MESSAGE);
-            }
-        });
+            });
+        }
 
         card.add(topPanel, BorderLayout.NORTH);
         card.add(centerPanel, BorderLayout.CENTER);
@@ -237,30 +358,91 @@ public class VoterClient extends JFrame {
     }
 
     // =========================================================================
-    // 📄 PAGE 3: BALLOT (BILIK SUARA)
+    // 🧠 LOGIC: NAVIGASI CERDAS & KONFIRMASI (Goals 1 & 2)
     // =========================================================================
-    private void setupBallotScreen(String title, String[] candidates) {
+
+    /**
+     * Menangani klik tombol Sidebar "Vote" (Ikon Pen).
+     * Tidak lagi "Blind Jump".
+     */
+    private void handleVoteNavigationClick() {
+        // 1. Cek apakah ada sesi aktif yang datanya sudah masuk
+        if (activeSession == null) {
+            JOptionPane.showMessageDialog(this, 
+                "Tidak ada pemilihan yang sedang berlangsung saat ini.\nSilakan cek kembali nanti.",
+                "Info", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        // 2. Cek apakah user sudah memilih di sesi aktif tersebut
+        if (votedSessions.contains(activeSession.title)) {
+             JOptionPane.showMessageDialog(this, 
+                "Anda sudah memberikan suara untuk sesi: " + activeSession.title + "\nTerima kasih atas partisipasi Anda.",
+                "Sudah Memilih", JOptionPane.WARNING_MESSAGE);
+             return;
+        }
+
+        // 3. Jika ada sesi aktif & belum memilih, tawarkan masuk (Konfirmasi)
+        // Karena server saat ini hanya streaming 1 sesi aktif, kita langsung tawarkan yang itu.
+        attemptToEnterBallot(activeSession.title);
+    }
+
+    /**
+     * Logika Pusat untuk masuk ke Bilik Suara.
+     * Mengandung Konfirmasi Dialog.
+     */
+    private void attemptToEnterBallot(String sessionTitle) {
+        // Validasi: Data sesi aktif harus sesuai dengan yang diminta
+        if (activeSession == null || !activeSession.title.equals(sessionTitle)) {
+             JOptionPane.showMessageDialog(this, "Data surat suara belum siap atau tidak sinkron. Tunggu sebentar...");
+             return;
+        }
+
+        // KONFIRMASI (Goals 2)
+        int choice = JOptionPane.showConfirmDialog(this,
+            "<html>Anda akan memasuki bilik suara untuk pemilihan:<br/><b>" + sessionTitle + "</b><br/><br/>" +
+            "Pastikan pilihan Anda sudah bulat sebelum masuk.<br/>Lanjutkan?</html>",
+            "Konfirmasi Masuk Bilik Suara",
+            JOptionPane.YES_NO_OPTION,
+            JOptionPane.QUESTION_MESSAGE);
+
+        if (choice == JOptionPane.YES_OPTION) {
+            setupBallotScreen(sessionTitle);
+            switchPage("PAGE_BALLOT", btnNavVote);
+        }
+    }
+
+    // =========================================================================
+    // 📄 PAGE 3: BALLOT (SURAT SUARA)
+    // =========================================================================
+    private void setupBallotScreen(String title) {
         JPanel panel = new JPanel(new BorderLayout());
         panel.setBackground(AppTheme.COLOR_BACKGROUND_APP);
         panel.setBorder(new EmptyBorder(20, 40, 40, 40));
 
-        // Header
         JPanel header = new JPanel(new BorderLayout());
         header.setOpaque(false);
         header.setBorder(new EmptyBorder(0, 0, 20, 0));
 
         JLabel lblTitle = new JLabel("Surat Suara: " + title);
         lblTitle.setFont(AppTheme.FONT_H1);
-        header.add(lblTitle, BorderLayout.WEST);
+        
+        JLabel lblInstruct = new JLabel("Klik tombol 'PILIH' pada kandidat pilihan Anda.");
+        lblInstruct.setFont(AppTheme.FONT_BODY);
+        
+        JPanel titleBox = new JPanel(new GridLayout(2,1));
+        titleBox.setOpaque(false);
+        titleBox.add(lblTitle);
+        titleBox.add(lblInstruct);
+        
+        header.add(titleBox, BorderLayout.WEST);
 
-        // Content Grid
         JPanel gridContainer = new JPanel(new FlowLayout(FlowLayout.CENTER, 40, 40));
         gridContainer.setOpaque(false);
 
-        for (String candName : candidates) {
-            if (!candName.trim().isEmpty()) {
-                gridContainer.add(new CandidateCard(candName.trim()));
-            }
+        // Buat kartu kandidat dinamis
+        for (String candName : activeCandidates) {
+            gridContainer.add(new CandidateCard(candName));
         }
 
         JScrollPane scrollPane = new JScrollPane(gridContainer);
@@ -272,40 +454,60 @@ public class VoterClient extends JFrame {
         panel.add(header, BorderLayout.NORTH);
         panel.add(scrollPane, BorderLayout.CENTER);
 
-        // Tambahkan ke Main Panel
-        mainContentPanel.add(panel, "PAGE_BALLOT");
+        // Hapus panel lama ballot jika ada, ganti baru
+        try {
+            // Cari komponen dengan nama PAGE_BALLOT di CardLayout (agak tricky di Swing standard)
+            // Kita remove berdasarkan index atau asumsi logic switchPage.
+            // Cara aman: remove semua component yang bukan core pages, lalu add lagi.
+            // Simplifikasi: Kita replace komponen di map CardLayout
+            mainContentPanel.add(panel, "PAGE_BALLOT");
+        } catch (Exception e) {
+            e.printStackTrace();
+        } 
     }
 
+    /**
+     * Komponen Kartu Kandidat
+     */
     private class CandidateCard extends JPanel {
         private boolean isHovered = false;
         private String name;
 
         public CandidateCard(String name) {
             this.name = name;
-            setPreferredSize(new Dimension(220, 300));
+            setPreferredSize(new Dimension(240, 320));
             setOpaque(false);
             setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
 
-            JLabel icon = new JLabel("👤");
-            icon.setFont(new Font("Segoe UI Emoji", Font.PLAIN, 80));
-            icon.setAlignmentX(Component.CENTER_ALIGNMENT);
+            // --- IMAGE HANDLING ---
+            JLabel lblImage = new JLabel();
+            lblImage.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+            ImageIcon photo = candidatePhotos.get(name);
+            if (photo != null) {
+                lblImage.setIcon(photo);
+            } else {
+                lblImage.setText("👤");
+                lblImage.setFont(new Font("Segoe UI Emoji", Font.PLAIN, 80));
+                lblImage.setHorizontalAlignment(SwingConstants.CENTER);
+            }
 
             JLabel lblName = new JLabel(name);
             lblName.setFont(AppTheme.FONT_H2);
             lblName.setForeground(AppTheme.COLOR_TEXT_MAIN);
             lblName.setAlignmentX(Component.CENTER_ALIGNMENT);
 
-            JButton btnVote = AppTheme.createGradientButton("PILIH", 160, 45);
+            JButton btnVote = AppTheme.createGradientButton("PILIH", 180, 45);
             btnVote.setAlignmentX(Component.CENTER_ALIGNMENT);
             btnVote.addActionListener(e -> submitVote(name));
 
-            add(Box.createVerticalStrut(30));
-            add(icon);
+            add(Box.createVerticalStrut(25));
+            add(lblImage);
             add(Box.createVerticalStrut(20));
             add(lblName);
             add(Box.createVerticalGlue());
             add(btnVote);
-            add(Box.createVerticalStrut(30));
+            add(Box.createVerticalStrut(25));
 
             addMouseListener(new MouseAdapter() {
                 public void mouseEntered(MouseEvent e) {
@@ -358,7 +560,10 @@ public class VoterClient extends JFrame {
 
         JButton btnBack = new JButton("Kembali ke Galeri");
         btnBack.setAlignmentX(0.5f);
-        btnBack.addActionListener(e -> switchPage("PAGE_GALLERY", btnNavGallery));
+        btnBack.addActionListener(e -> {
+            refreshGalleryUI(); // Refresh agar kartu jadi disabled
+            switchPage("PAGE_GALLERY", btnNavGallery);
+        });
 
         c.add(icon);
         c.add(t1);
@@ -370,62 +575,101 @@ public class VoterClient extends JFrame {
     }
 
     // =========================================================================
-    // ⚙️ LOGIC & NETWORKING
+    // ⚙️ LOGIC & NETWORKING (PROTOCOL V2)
     // =========================================================================
 
-    /**
-     * Menghubungkan ke server dan membaca data awal.
-     */
     private void connectAndSetup() {
         try {
-            // Simulasi loading
-            SwingUtilities.invokeLater(() -> contentLayout.show(mainContentPanel, "PAGE_LOADING"));
-            Thread.sleep(1000);
-
+            // Jangan switch ke loading jika sedang di login screen
+            // SwingUtilities.invokeLater(() -> contentLayout.show(mainContentPanel, "PAGE_LOADING"));
+            
             socket = new Socket(AppTheme.SERVER_HOST, AppTheme.SERVER_PORT);
             out = new DataOutputStream(socket.getOutputStream());
             in = new DataInputStream(socket.getInputStream());
 
-            // 1. Baca History List
+            // 1. Baca History List (Text)
             String historyMsg = in.readUTF();
             if (historyMsg.startsWith("HISTORY_LIST|")) {
                 parseHistoryList(historyMsg);
             }
 
-            // 2. Baca Setup Sesi Aktif (jika ada)
-            String setupMsg = in.readUTF();
-            if (setupMsg.startsWith("SETUP|")) {
-                String[] parts = setupMsg.split("\\|");
-                String title = parts[1];
-                activeCandidates = parts[2].split(",");
+            // 2. Baca Setup Sesi Aktif
+            String header = in.readUTF();
 
-                // Cari sesi yang cocok di list untuk dijadikan activeSession
-                for (SessionInfo si : sessionList) {
-                    if (si.title.equals(title) && si.isActive) {
-                        activeSession = si;
-                        break;
-                    }
-                }
-
-                // Setup Ballot UI di background
-                SwingUtilities.invokeLater(() -> setupBallotScreen(title, activeCandidates));
+            if (header.equals("SETUP_V2_IMAGES")) {
+                handleSetupV2();
+            } else if (header.startsWith("WAIT")) {
+                // Tidak ada sesi aktif
+                activeSession = null;
             }
 
-            // Selesai Loading -> Masuk Galeri
-            SwingUtilities.invokeLater(() -> {
-                refreshGalleryUI();
-                switchPage("PAGE_GALLERY", btnNavGallery);
-            });
+            // Update UI jika sudah login
+            if (isLoggedIn) {
+                SwingUtilities.invokeLater(this::refreshGalleryUI);
+            }
 
         } catch (Exception e) {
-            SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(this, "Gagal koneksi server!"));
+            SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(this, "Gagal koneksi server: " + e.getMessage()));
+            e.printStackTrace();
         }
     }
 
+    private void handleSetupV2() throws IOException {
+        String title = in.readUTF();
+        int candidateCount = in.readInt();
+
+        activeCandidates.clear();
+        candidatePhotos.clear();
+
+        for (int i = 0; i < candidateCount; i++) {
+            String name = in.readUTF();
+            int imgSize = in.readInt();
+
+            activeCandidates.add(name);
+
+            if (imgSize > 0) {
+                byte[] imgBytes = new byte[imgSize];
+                in.readFully(imgBytes);
+                ImageIcon originalIcon = new ImageIcon(imgBytes);
+                ImageIcon scaledIcon = scaleImage(originalIcon, 150, 150);
+                candidatePhotos.put(name, scaledIcon);
+            }
+        }
+
+        // Cari info sesi di history list untuk dicocokkan jadi activeSession
+        boolean found = false;
+        for (SessionInfo si : sessionList) {
+            if (si.title.equals(title)) {
+                activeSession = si; // Link ke object SessionInfo yang sama
+                found = true;
+                break;
+            }
+        }
+        
+        if (!found) {
+            // Fallback jika tidak ada di history list (jarang terjadi)
+            activeSession = new SessionInfo(title, true, "-");
+            sessionList.add(0, activeSession);
+        }
+        
+        // PENTING: Jangan otomatis switch ke PAGE_BALLOT (Fix Blind Jump)
+        // Cukup simpan data, user yang akan navigasi sendiri.
+    }
+
+    private ImageIcon scaleImage(ImageIcon icon, int w, int h) {
+        if (icon == null) return null;
+        Image img = icon.getImage();
+        BufferedImage bi = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g2 = bi.createGraphics();
+        g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        g2.drawImage(img, 0, 0, w, h, null);
+        g2.dispose();
+        return new ImageIcon(bi);
+    }
+
     private void parseHistoryList(String msg) {
-        // Format: HISTORY_LIST|Title;Active;Winner#Title;Active;Winner...
         sessionList.clear();
-        String rawData = msg.substring(13); // Hapus header
+        String rawData = msg.substring(13);
         if (rawData.isEmpty())
             return;
 
@@ -454,9 +698,10 @@ public class VoterClient extends JFrame {
     }
 
     private void submitVote(String candidateName) {
-        if (hasVoted) {
-            JOptionPane.showMessageDialog(this, "Anda sudah memilih di sesi ini!");
-            return;
+        // Double check state
+        if (activeSession != null && votedSessions.contains(activeSession.title)) {
+             JOptionPane.showMessageDialog(this, "Anda sudah memilih!");
+             return;
         }
 
         int confirm = JOptionPane.showConfirmDialog(this, "Yakin memilih " + candidateName + "?");
@@ -465,14 +710,18 @@ public class VoterClient extends JFrame {
 
         try {
             out.writeUTF("VOTE|" + candidateName);
-            hasVoted = true;
-            switchPage("PAGE_SUCCESS", btnNavVote); // Tetap highlight Vote tab sbg konteks
+            
+            // Goals 3: Simpan State Bahwa User Sudah Memilih
+            if (activeSession != null) {
+                votedSessions.add(activeSession.title);
+            }
+            
+            switchPage("PAGE_SUCCESS", btnNavVote);
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
 
-    // Helper Class untuk Data Sesi
     private class SessionInfo {
         String title;
         boolean isActive;
@@ -486,6 +735,9 @@ public class VoterClient extends JFrame {
     }
 
     public static void main(String[] args) {
+        try {
+            UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+        } catch (Exception e) {}
         SwingUtilities.invokeLater(() -> new VoterClient().setVisible(true));
     }
 }

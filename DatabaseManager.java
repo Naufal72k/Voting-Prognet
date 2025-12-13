@@ -4,32 +4,17 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-/**
- * =============================================================================
- * 🗄️ DATABASE MANAGER (MySQL Version) - V3 OPTIMIZED
- * =============================================================================
- * UPDATE LOG V3:
- * - Optimalisasi getAllHistory untuk mencegah NullPointer di GraphPanel.
- * - Null-Safety untuk Image Paths.
- * - Ordering Kandidat yang konsisten (ORDER BY id).
- */
 public class DatabaseManager {
 
-    // --- KONFIGURASI KONEKSI MySQL ---
     private static final String DB_URL = "jdbc:mysql://localhost:3306/evoting_history_db";
     private static final String USER = "root";
-    private static final String PASS = ""; // <-- PASSWORD KOSONG (Sesuaikan dengan XAMPP Anda)
-    // ----------------------------------
+    private static final String PASS = "";
 
-    /**
-     * Inisialisasi Database dan buat tabel jika belum ada.
-     */
     public static void initDatabase() {
         try (Connection conn = DriverManager.getConnection(DB_URL, USER, PASS)) {
             if (conn != null) {
                 Statement stmt = conn.createStatement();
 
-                // 1. Tabel Sessions
                 String sqlSessions = "CREATE TABLE IF NOT EXISTS sessions ("
                         + "id INT PRIMARY KEY AUTO_INCREMENT,"
                         + "title VARCHAR(255) NOT NULL,"
@@ -38,7 +23,6 @@ public class DatabaseManager {
                         + ");";
                 stmt.execute(sqlSessions);
 
-                // 2. Tabel Candidates
                 String sqlCandidates = "CREATE TABLE IF NOT EXISTS candidates ("
                         + "id INT PRIMARY KEY AUTO_INCREMENT,"
                         + "session_id INT,"
@@ -57,9 +41,6 @@ public class DatabaseManager {
         }
     }
 
-    /**
-     * Menyimpan Sesi SELESAI ke Database.
-     */
     public static void saveSession(VotingSession session) {
         String sqlSession = "INSERT INTO sessions(title, timestamp, total_votes) VALUES(?,?,?)";
         String sqlCandidate = "INSERT INTO candidates(session_id, name, image_path, vote_count) VALUES(?,?,?,?)";
@@ -67,23 +48,20 @@ public class DatabaseManager {
         Connection conn = null;
         try {
             conn = DriverManager.getConnection(DB_URL, USER, PASS);
-            conn.setAutoCommit(false); // Transaction start
+            conn.setAutoCommit(false);
 
-            // 1. Simpan Header Sesi
             PreparedStatement pstmtSession = conn.prepareStatement(sqlSession, Statement.RETURN_GENERATED_KEYS);
             pstmtSession.setString(1, session.getTitle());
             pstmtSession.setLong(2, session.getStartTime());
             pstmtSession.setInt(3, session.getTotalVotes());
             pstmtSession.executeUpdate();
 
-            // Ambil ID Sesi
             int sessionId = -1;
             ResultSet rs = pstmtSession.getGeneratedKeys();
             if (rs.next()) {
                 sessionId = rs.getInt(1);
             }
 
-            // 2. Simpan Detail Kandidat
             if (sessionId != -1) {
                 PreparedStatement pstmtCand = conn.prepareStatement(sqlCandidate);
                 Map<String, Integer> votes = session.getAllData();
@@ -93,7 +71,6 @@ public class DatabaseManager {
                     pstmtCand.setInt(1, sessionId);
                     pstmtCand.setString(2, name);
 
-                    // Handle image path null
                     String path = (images != null) ? images.getOrDefault(name, "") : "";
                     pstmtCand.setString(3, path);
 
@@ -124,17 +101,11 @@ public class DatabaseManager {
         }
     }
 
-    /**
-     * Mengambil seluruh riwayat voting dengan struktur data lengkap.
-     * Mencegah NullPointer pada GraphPanel ServerAdmin.
-     */
     public static List<VotingSession> getAllHistory() {
         List<VotingSession> historyList = new ArrayList<>();
 
-        // Urutkan sesi dari yang terbaru (DESC)
         String sqlSelectSessions = "SELECT * FROM sessions ORDER BY timestamp DESC";
 
-        // Urutkan kandidat berdasarkan ID agar urutan visual di grafik konsisten (ASC)
         String sqlSelectCandidates = "SELECT * FROM candidates WHERE session_id = ? ORDER BY id ASC";
 
         try (Connection conn = DriverManager.getConnection(DB_URL, USER, PASS);
@@ -146,7 +117,6 @@ public class DatabaseManager {
                 String title = rsSessions.getString("title");
                 long timestamp = rsSessions.getLong("timestamp");
 
-                // --- FETCH CANDIDATES ---
                 PreparedStatement pstmtCand = conn.prepareStatement(sqlSelectCandidates);
                 pstmtCand.setInt(1, id);
                 ResultSet rsCand = pstmtCand.executeQuery();
@@ -161,25 +131,18 @@ public class DatabaseManager {
                     int votes = rsCand.getInt("vote_count");
 
                     candidateNames.add(name);
-                    // Penting: Ubah null jadi empty string agar tidak error di Client/Server
                     candidateImages.add(imgPath == null ? "" : imgPath);
                     candidateVotes.add(votes);
                 }
 
-                // --- RECONSTRUCT SESSION OBJECT ---
-                // Konversi List ke Array untuk Constructor VotingSession
                 String[] arrNames = candidateNames.toArray(new String[0]);
                 String[] arrImages = candidateImages.toArray(new String[0]);
 
-                // Buat objek sesi
-                // Constructor ini akan otomatis mengisi voteData dengan 0
                 VotingSession session = new VotingSession(title, arrNames, arrImages);
 
-                // Set metadata sesi
-                session.forceEndSession(); // Karena ini history, pasti sudah selesai
+                session.forceEndSession();
                 session.overwriteStartTime(timestamp);
 
-                // Restore jumlah suara manual
                 for (int i = 0; i < arrNames.length; i++) {
                     session.setVoteCountManual(arrNames[i], candidateVotes.get(i));
                 }

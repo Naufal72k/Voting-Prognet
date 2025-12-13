@@ -11,82 +11,59 @@ import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.JTableHeader;
 
-/**
- * =============================================================================
- * 🖥️ SERVER ADMIN: IMPROVED UX (V3.2)
- * =============================================================================
- * UPDATE LOG V3.2:
- * - Mengubah Statistik "Sesi Terpilih" menjadi "Total Kegiatan".
- * - Update Protokol Server: Mengirim data detail suara (summary string) ke
- * client.
- */
 public class ServerAdmin extends JFrame {
 
-    // =========================================================================
-    // 🧠 DATA & STATE
-    // =========================================================================
     private List<VotingSession> historySessions = new ArrayList<>();
-    private VotingSession currentSession; // Sesi yang sedang LIVE (Backend)
-    private VotingSession viewedSession; // Sesi yang sedang DILIHAT (UI)
+    private List<VotingSession> activeSessions = new ArrayList<>();
+    private VotingSession viewedSession;
 
     private boolean isServerRunning = true;
     private int connectedClients = 0;
     private List<CandidateInputRow> inputRows = new ArrayList<>();
 
-    // State Navigasi untuk tombol "Back" di Monitor
+    private List<DataOutputStream> activeClientStreams = Collections.synchronizedList(new ArrayList<>());
+
     private String lastPageTag = "PAGE_DASHBOARD";
     private AppTheme.SidebarButton lastActiveButton = null;
 
-    // =========================================================================
-    // 🎨 UI COMPONENTS
-    // =========================================================================
     private CardLayout contentLayout;
     private JPanel mainContentPanel;
 
-    // Sidebar Buttons
     private AppTheme.SidebarButton btnNavDash;
     private AppTheme.SidebarButton btnNavHistory;
     private AppTheme.SidebarButton btnNavCreate;
     private AppTheme.SidebarButton btnStressTest;
 
-    // Dashboard Components
-    // UPDATED: lblStatActiveSession diganti menjadi lblStatTotalSessions
     private JLabel lblStatTotalVotes, lblStatTotalSessions, lblStatClients;
-    private DefaultTableModel tableModelDashboard; // Hanya 5 teratas
+    private DefaultTableModel tableModelDashboard;
     private JTable dashboardTable;
 
-    // History Components
-    private DefaultTableModel tableModelHistory; // Semua data
+    private DefaultTableModel tableModelHistory;
     private JTable historyTable;
 
-    // Monitor Components
     private GraphPanel liveGraphPanel;
     private JLabel lblGraphTitle, lblGraphStatus;
     private JButton btnEndVote;
+    private JButton btnManageCandidates;
     private JButton btnBackNavigation;
     private JPanel monitorHeaderPanel;
 
-    // Create Session Components
     private JTextField txtSessionTitle;
     private JPanel candidatesContainer;
 
     public ServerAdmin() {
-        // 1. SKIP LOGIN - Langsung Masuk
         setTitle("Admin Dashboard - E-Voting System (V3.2)");
         setSize(1280, 800);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
         setLayout(new BorderLayout());
 
-        // 2. Inisialisasi Database & Load History
         DatabaseManager.initDatabase();
         loadHistoryFromDB();
 
-        // 3. Setup UI
         initSidebar();
         initContentArea();
 
-        // 4. Start Server
         new Thread(this::startServer).start();
     }
 
@@ -95,9 +72,6 @@ public class ServerAdmin extends JFrame {
         historySessions.addAll(DatabaseManager.getAllHistory());
     }
 
-    // =========================================================================
-    // 🏗️ LAYOUT: SIDEBAR (WEST)
-    // =========================================================================
     private void initSidebar() {
         JPanel sidebar = new JPanel();
         sidebar.setLayout(new BoxLayout(sidebar, BoxLayout.Y_AXIS));
@@ -110,20 +84,17 @@ public class ServerAdmin extends JFrame {
         lblLogo.setForeground(Color.WHITE);
         lblLogo.setAlignmentX(Component.CENTER_ALIGNMENT);
 
-        // --- BUTTONS ---
         btnNavDash = AppTheme.createSidebarButton("🏠", true);
-        btnNavHistory = AppTheme.createSidebarButton("📜", false); // Icon Riwayat
+        btnNavHistory = AppTheme.createSidebarButton("📜", false);
         btnNavCreate = AppTheme.createSidebarButton("➕", false);
         btnStressTest = AppTheme.createSidebarButton("⚡", false);
         btnStressTest.setForeground(new Color(251, 191, 36));
 
-        // --- ACTIONS ---
         btnNavDash.addActionListener(e -> switchPage("PAGE_DASHBOARD", btnNavDash));
         btnNavHistory.addActionListener(e -> switchPage("PAGE_HISTORY", btnNavHistory));
         btnNavCreate.addActionListener(e -> switchPage("PAGE_CREATE", btnNavCreate));
         btnStressTest.addActionListener(e -> showAdvancedStressTestDialog());
 
-        // --- ADD TO PANEL ---
         sidebar.add(lblLogo);
         sidebar.add(Box.createVerticalStrut(50));
         addSidebarItem(sidebar, btnNavDash);
@@ -148,9 +119,6 @@ public class ServerAdmin extends JFrame {
         sidebar.add(Box.createVerticalStrut(15));
     }
 
-    // =========================================================================
-    // 🏗️ LAYOUT: CONTENT AREA (CENTER)
-    // =========================================================================
     private void initContentArea() {
         contentLayout = new CardLayout();
         mainContentPanel = new JPanel(contentLayout);
@@ -163,7 +131,6 @@ public class ServerAdmin extends JFrame {
 
         add(mainContentPanel, BorderLayout.CENTER);
 
-        // Initial Update
         updateDashboardTable();
         updateHistoryTable();
     }
@@ -171,7 +138,6 @@ public class ServerAdmin extends JFrame {
     private void switchPage(String pageName, AppTheme.SidebarButton activeButton) {
         contentLayout.show(mainContentPanel, pageName);
 
-        // Reset Active State
         btnNavDash.setActive(false);
         btnNavHistory.setActive(false);
         btnNavCreate.setActive(false);
@@ -179,8 +145,8 @@ public class ServerAdmin extends JFrame {
 
         if (activeButton != null) {
             activeButton.setActive(true);
-            lastActiveButton = activeButton; // Simpan untuk tombol Back
-            lastPageTag = pageName; // Simpan untuk tombol Back
+            lastActiveButton = activeButton;
+            lastPageTag = pageName;
         }
 
         if (pageName.equals("PAGE_DASHBOARD"))
@@ -191,9 +157,6 @@ public class ServerAdmin extends JFrame {
             refreshMonitorUI();
     }
 
-    // =========================================================================
-    // 📄 PAGE 1: DASHBOARD (TOP 5 ONLY)
-    // =========================================================================
     private JPanel createPageDashboard() {
         JPanel panel = new JPanel(new BorderLayout(0, 30));
         panel.setOpaque(false);
@@ -207,21 +170,18 @@ public class ServerAdmin extends JFrame {
         JPanel centerContainer = new JPanel(new BorderLayout(0, 30));
         centerContainer.setOpaque(false);
 
-        // Stats Grid
         JPanel statsGrid = new JPanel(new GridLayout(1, 3, 25, 0));
         statsGrid.setOpaque(false);
         statsGrid.setPreferredSize(new Dimension(0, 140));
 
         lblStatTotalVotes = new JLabel("0");
-        lblStatTotalSessions = new JLabel("0"); // UPDATED: Default 0
+        lblStatTotalSessions = new JLabel("0");
         lblStatClients = new JLabel("0");
 
         statsGrid.add(createStatCard("Total Suara (Live)", lblStatTotalVotes));
-        // UPDATED: Title changed from "Sesi Terpilih" to "Total Kegiatan"
         statsGrid.add(createStatCard("Total Kegiatan", lblStatTotalSessions));
         statsGrid.add(createStatCard("Client Terhubung", lblStatClients));
 
-        // Tabel Dashboard (Limited 5)
         JPanel tablePanel = AppTheme.createShadowPanel();
         tablePanel.setLayout(new BorderLayout());
 
@@ -239,14 +199,12 @@ public class ServerAdmin extends JFrame {
         dashboardTable = new JTable(tableModelDashboard);
         setupTableStyle(dashboardTable);
 
-        // Interaction: Click to Monitor
         dashboardTable.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (e.getClickCount() >= 1) {
                     int row = dashboardTable.getSelectedRow();
                     if (row != -1) {
-                        // Mapping row index dashboard ke Session
                         int sessionIndex = historySessions.size() - 1 - row;
                         if (sessionIndex >= 0 && sessionIndex < historySessions.size()) {
                             loadSessionToMonitor(historySessions.get(sessionIndex));
@@ -266,9 +224,6 @@ public class ServerAdmin extends JFrame {
         return panel;
     }
 
-    // =========================================================================
-    // 📄 PAGE 2: RIWAYAT / HISTORY (FULL LIST)
-    // =========================================================================
     private JPanel createPageHistory() {
         JPanel panel = new JPanel(new BorderLayout(0, 20));
         panel.setOpaque(false);
@@ -277,7 +232,29 @@ public class ServerAdmin extends JFrame {
         JLabel title = new JLabel("Riwayat Lengkap Sesi Voting");
         title.setFont(AppTheme.FONT_H1);
         title.setForeground(AppTheme.COLOR_TEXT_MAIN);
-        panel.add(title, BorderLayout.NORTH);
+
+        JPanel headerPanel = new JPanel(new BorderLayout());
+        headerPanel.setOpaque(false);
+        headerPanel.add(title, BorderLayout.WEST);
+
+        JPanel searchPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        searchPanel.setOpaque(false);
+        JLabel lblSearch = new JLabel("🔍 Cari Sesi:");
+        lblSearch.setFont(AppTheme.FONT_BOLD);
+        JTextField txtSearch = new JTextField(15);
+        txtSearch.putClientProperty("JTextField.placeholderText", "Ketik nama kegiatan...");
+
+        txtSearch.addKeyListener(new java.awt.event.KeyAdapter() {
+            public void keyReleased(java.awt.event.KeyEvent evt) {
+                updateHistoryTable(txtSearch.getText());
+            }
+        });
+
+        searchPanel.add(lblSearch);
+        searchPanel.add(txtSearch);
+        headerPanel.add(searchPanel, BorderLayout.EAST);
+
+        panel.add(headerPanel, BorderLayout.NORTH);
 
         JPanel tablePanel = AppTheme.createShadowPanel();
         tablePanel.setLayout(new BorderLayout());
@@ -292,17 +269,19 @@ public class ServerAdmin extends JFrame {
         historyTable = new JTable(tableModelHistory);
         setupTableStyle(historyTable);
 
-        // Interaction: Click to Monitor
         historyTable.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (e.getClickCount() >= 1) {
                     int row = historyTable.getSelectedRow();
                     if (row != -1) {
-                        // Mapping row index history ke Session (Descending)
-                        int sessionIndex = historySessions.size() - 1 - row;
-                        if (sessionIndex >= 0 && sessionIndex < historySessions.size()) {
-                            loadSessionToMonitor(historySessions.get(sessionIndex));
+                        String titleClicked = (String) tableModelHistory.getValueAt(row, 1);
+
+                        for (VotingSession vs : historySessions) {
+                            if (vs.getTitle().equals(titleClicked)) {
+                                loadSessionToMonitor(vs);
+                                break;
+                            }
                         }
                     }
                 }
@@ -329,9 +308,6 @@ public class ServerAdmin extends JFrame {
         header.setPreferredSize(new Dimension(0, 45));
     }
 
-    // =========================================================================
-    // 📄 PAGE 3: CREATE SESSION
-    // =========================================================================
     private JPanel createPageCreateSession() {
         JPanel panel = new JPanel(new BorderLayout());
         panel.setOpaque(false);
@@ -382,19 +358,14 @@ public class ServerAdmin extends JFrame {
         return panel;
     }
 
-    // =========================================================================
-    // 📄 PAGE 4: MONITOR (HIDDEN VIEW)
-    // =========================================================================
     private JPanel createPageMonitor() {
         JPanel panel = new JPanel(new BorderLayout(0, 20));
         panel.setOpaque(false);
         panel.setBorder(new EmptyBorder(20, 40, 40, 40));
 
-        // --- HEADER PANEL (NORTH) ---
         monitorHeaderPanel = new JPanel(new BorderLayout());
         monitorHeaderPanel.setOpaque(false);
 
-        // Tombol Kembali (Left)
         JPanel leftBox = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         leftBox.setOpaque(false);
 
@@ -404,11 +375,9 @@ public class ServerAdmin extends JFrame {
         btnBackNavigation.setContentAreaFilled(false);
         btnBackNavigation.setCursor(new Cursor(Cursor.HAND_CURSOR));
         btnBackNavigation.addActionListener(e -> {
-            // Kembali ke halaman sebelumnya (Dashboard atau History)
             switchPage(lastPageTag, lastActiveButton);
         });
 
-        // Info Title
         JPanel titleBox = new JPanel(new GridLayout(2, 1));
         titleBox.setOpaque(false);
         titleBox.setBorder(new EmptyBorder(10, 0, 0, 0));
@@ -426,20 +395,29 @@ public class ServerAdmin extends JFrame {
 
         leftBox.add(btnBackNavigation);
 
-        // Tombol Aksi (Right) - Akhiri Sesi
         JPanel rightBox = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         rightBox.setOpaque(false);
+
+        btnManageCandidates = new JButton("⚙ KELOLA KANDIDAT");
+        btnManageCandidates.setFont(AppTheme.FONT_BOLD);
+        btnManageCandidates.setForeground(AppTheme.COLOR_PRIMARY_START);
+        btnManageCandidates.setBackground(Color.WHITE);
+        btnManageCandidates.setFocusPainted(false);
+        btnManageCandidates.addActionListener(e -> openCandidateManager());
 
         btnEndVote = new JButton("AKHIRI SESI & SIMPAN");
         btnEndVote.setFont(AppTheme.FONT_BOLD);
         btnEndVote.setForeground(Color.WHITE);
-        btnEndVote.setBackground(new Color(220, 38, 38)); // Red
+        btnEndVote.setBackground(new Color(220, 38, 38));
+        btnEndVote.setOpaque(true);
+        btnEndVote.setBorderPainted(false);
         btnEndVote.setFocusPainted(false);
+        btnEndVote.setRolloverEnabled(false);
         btnEndVote.addActionListener(e -> actionEndSession());
 
+        rightBox.add(btnManageCandidates);
         rightBox.add(btnEndVote);
 
-        // Assemble Header
         JPanel headerContent = new JPanel(new BorderLayout());
         headerContent.setOpaque(false);
         headerContent.add(btnBackNavigation, BorderLayout.NORTH);
@@ -448,22 +426,16 @@ public class ServerAdmin extends JFrame {
 
         monitorHeaderPanel.add(headerContent, BorderLayout.CENTER);
 
-        // --- GRAPH PANEL (CENTER) ---
         liveGraphPanel = new GraphPanel();
 
-        panel.add(monitorHeaderPanel, BorderLayout.NORTH); // Header pasti di atas
-        panel.add(liveGraphPanel, BorderLayout.CENTER); // Grafik di tengah
+        panel.add(monitorHeaderPanel, BorderLayout.NORTH);
+        panel.add(liveGraphPanel, BorderLayout.CENTER);
 
         return panel;
     }
 
-    // =========================================================================
-    // ⚙️ LOGIC & HELPERS
-    // =========================================================================
-
     private void loadSessionToMonitor(VotingSession session) {
         this.viewedSession = session;
-        // Pindah ke halaman monitor tanpa mengubah tombol sidebar aktif
         contentLayout.show(mainContentPanel, "PAGE_MONITOR");
         refreshMonitorUI();
     }
@@ -471,16 +443,18 @@ public class ServerAdmin extends JFrame {
     private void refreshMonitorUI() {
         if (viewedSession != null) {
             lblGraphTitle.setText(viewedSession.getTitle());
-            boolean isWatchingLive = (viewedSession == currentSession) && currentSession.isActive();
+            boolean isLive = viewedSession.isActive();
 
-            if (isWatchingLive) {
+            if (isLive) {
                 lblGraphStatus.setText("Status: 🟢 LIVE VOTING");
                 lblGraphStatus.setForeground(new Color(22, 163, 74));
                 btnEndVote.setVisible(true);
+                btnManageCandidates.setVisible(true);
             } else {
                 lblGraphStatus.setText("Status: 🏁 ARSIP / SELESAI");
                 lblGraphStatus.setForeground(Color.GRAY);
                 btnEndVote.setVisible(false);
+                btnManageCandidates.setVisible(false);
             }
         }
         liveGraphPanel.repaint();
@@ -546,31 +520,35 @@ public class ServerAdmin extends JFrame {
             return;
         }
 
-        currentSession = new VotingSession(title, validNames.toArray(new String[0]), validPaths.toArray(new String[0]));
-        historySessions.add(currentSession);
+        VotingSession newSession = new VotingSession(title, validNames.toArray(new String[0]),
+                validPaths.toArray(new String[0]));
+        activeSessions.add(newSession);
+        historySessions.add(newSession);
 
         resetFormToDefault();
-        loadSessionToMonitor(currentSession); // Langsung lihat monitor sesi baru
+        loadSessionToMonitor(newSession);
 
-        // Update list navigation
         lastPageTag = "PAGE_DASHBOARD";
         lastActiveButton = btnNavDash;
 
         updateDashboardTable();
         updateHistoryTable();
 
-        JOptionPane.showMessageDialog(this, "Sesi DIBUKA! Client akan menerima data.");
+        JOptionPane.showMessageDialog(this, "Sesi '" + title + "' DIBUKA! Client dapat melihat sesi baru.");
     }
 
     private void actionEndSession() {
-        if (currentSession == null || !currentSession.isActive())
+        if (viewedSession == null || !viewedSession.isActive())
             return;
 
-        int confirm = JOptionPane.showConfirmDialog(this, "Akhiri sesi dan SIMPAN hasil ke Database?", "Konfirmasi",
+        int confirm = JOptionPane.showConfirmDialog(this,
+                "Akhiri sesi '" + viewedSession.getTitle() + "' dan SIMPAN hasil?", "Konfirmasi",
                 JOptionPane.YES_NO_OPTION);
         if (confirm == JOptionPane.YES_OPTION) {
-            currentSession.endSession();
-            DatabaseManager.saveSession(currentSession);
+            viewedSession.endSession();
+            activeSessions.remove(viewedSession);
+            DatabaseManager.saveSession(viewedSession);
+
             refreshMonitorUI();
             updateDashboardTable();
             updateHistoryTable();
@@ -581,12 +559,10 @@ public class ServerAdmin extends JFrame {
     private void updateDashboardTable() {
         tableModelDashboard.setRowCount(0);
 
-        // UPDATED: Logic Dashboard
-        // Menampilkan Total Kegiatan (Jumlah List History)
         lblStatTotalSessions.setText(String.valueOf(historySessions.size()));
 
         int startIdx = historySessions.size() - 1;
-        int endIdx = Math.max(0, historySessions.size() - 5); // Limit 5
+        int endIdx = Math.max(0, historySessions.size() - 5);
 
         int displayId = 1;
         for (int i = startIdx; i >= endIdx; i--) {
@@ -598,11 +574,21 @@ public class ServerAdmin extends JFrame {
     }
 
     private void updateHistoryTable() {
+        updateHistoryTable("");
+    }
+
+    private void updateHistoryTable(String searchQuery) {
         tableModelHistory.setRowCount(0);
         int displayId = 1;
-        // Loop semua data
+        String query = searchQuery.toLowerCase().trim();
+
         for (int i = historySessions.size() - 1; i >= 0; i--) {
             VotingSession vs = historySessions.get(i);
+
+            if (!query.isEmpty() && !vs.getTitle().toLowerCase().contains(query)) {
+                continue;
+            }
+
             String status = vs.isActive() ? "🟢 Aktif" : "🔴 Selesai";
             Date date = new Date(vs.getStartTime());
             tableModelHistory.addRow(new Object[] { displayId++, vs.getTitle(), status, vs.getWinnerResult(),
@@ -611,15 +597,11 @@ public class ServerAdmin extends JFrame {
     }
 
     private void updateRealtimeStats() {
-        if (viewedSession == currentSession) {
-            lblStatTotalVotes.setText(String.valueOf(currentSession.getTotalVotes()));
+        if (viewedSession != null && viewedSession.isActive()) {
+            lblStatTotalVotes.setText(String.valueOf(viewedSession.getTotalVotes()));
             liveGraphPanel.repaint();
         }
     }
-
-    // =========================================================================
-    // ⚡ STRESS TEST (ADVANCED)
-    // =========================================================================
 
     private void showAdvancedStressTestDialog() {
         JDialog dialog = new JDialog(this, "Stress Test Configuration", true);
@@ -631,23 +613,21 @@ public class ServerAdmin extends JFrame {
         content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
         content.setBorder(new EmptyBorder(20, 20, 20, 20));
 
-        // 1. Target Session Selection
         content.add(new JLabel("Target Sesi:"));
         JComboBox<String> comboSession = new JComboBox<>();
-        // Isi dengan sesi live + 5 history terakhir
-        if (currentSession != null && currentSession.isActive()) {
-            comboSession.addItem("LIVE: " + currentSession.getTitle());
+
+        for (VotingSession vs : activeSessions) {
+            comboSession.addItem("LIVE: " + vs.getTitle());
         }
         for (int i = historySessions.size() - 1; i >= Math.max(0, historySessions.size() - 5); i--) {
             VotingSession vs = historySessions.get(i);
-            if (vs != currentSession) {
+            if (!vs.isActive()) {
                 comboSession.addItem("ARCHIVE: " + vs.getTitle());
             }
         }
         content.add(comboSession);
         content.add(Box.createVerticalStrut(15));
 
-        // 2. Thread Mode
         content.add(new JLabel("Mode Threading:"));
         JRadioButton radioSafe = new JRadioButton("Safe (Synchronized)", true);
         JRadioButton radioUnsafe = new JRadioButton("Unsafe (Race Condition)");
@@ -658,7 +638,6 @@ public class ServerAdmin extends JFrame {
         content.add(radioUnsafe);
         content.add(Box.createVerticalStrut(15));
 
-        // 3. Persistence Mode
         content.add(new JLabel("Mode Penyimpanan:"));
         JRadioButton radioSave = new JRadioButton("Save to DB (Jika Live)", true);
         JRadioButton radioNoSave = new JRadioButton("No Save (RAM Simulation)");
@@ -669,17 +648,20 @@ public class ServerAdmin extends JFrame {
         content.add(radioNoSave);
         content.add(Box.createVerticalStrut(20));
 
-        // Action Button
         JButton btnStart = new JButton("MULAI SIMULASI (50 Votes)");
         btnStart.addActionListener(e -> {
             String selectedItem = (String) comboSession.getSelectedItem();
             if (selectedItem == null)
                 return;
 
-            // Cari object sesi
             VotingSession target = null;
-            if (selectedItem.startsWith("LIVE") && currentSession != null) {
-                target = currentSession;
+            if (selectedItem.startsWith("LIVE")) {
+                for (VotingSession vs : activeSessions) {
+                    if (selectedItem.contains(vs.getTitle())) {
+                        target = vs;
+                        break;
+                    }
+                }
             } else {
                 String title = selectedItem.replace("ARCHIVE: ", "");
                 for (VotingSession vs : historySessions) {
@@ -693,7 +675,6 @@ public class ServerAdmin extends JFrame {
             if (target != null) {
                 runStressTest(target, radioUnsafe.isSelected(), radioNoSave.isSelected());
                 dialog.dispose();
-                // Arahkan pandangan ke monitor sesi tersebut
                 loadSessionToMonitor(target);
             }
         });
@@ -708,18 +689,10 @@ public class ServerAdmin extends JFrame {
         if (candidates.isEmpty())
             return;
 
-        // NOTE: "No Save" mode dalam konteks ini berarti kita hanya mengubah state di
-        // RAM
-        // dan tidak memicu trigger save database (karena database save manual di tombol
-        // End).
-        // Namun untuk sesi arsip, VotingSession memblokir vote.
-        // Logic ini mensimulasikan penambahan suara.
-
         for (int i = 0; i < 50; i++) {
             new Thread(() -> {
                 String rand = candidates.get((int) (Math.random() * candidates.size()));
 
-                // Gunakan unsafe method jika dipilih, atau addVote biasa
                 if (isUnsafe) {
                     target.addVoteUnsafe(rand);
                 } else {
@@ -728,16 +701,13 @@ public class ServerAdmin extends JFrame {
 
                 SwingUtilities.invokeLater(() -> {
                     liveGraphPanel.repaint();
-                    if (target == currentSession)
+                    if (activeSessions.contains(target))
                         lblStatTotalVotes.setText(String.valueOf(target.getTotalVotes()));
                 });
             }).start();
         }
     }
 
-    // =========================================================================
-    // 🖥️ SERVER ENGINE
-    // =========================================================================
     private void startServer() {
         try (ServerSocket serverSocket = new ServerSocket(AppTheme.SERVER_PORT)) {
             while (isServerRunning) {
@@ -752,28 +722,71 @@ public class ServerAdmin extends JFrame {
     }
 
     private void handleClient(Socket socket) {
-        try (DataInputStream in = new DataInputStream(socket.getInputStream());
-                DataOutputStream out = new DataOutputStream(socket.getOutputStream())) {
+        DataInputStream in = null;
+        DataOutputStream out = null;
+        try {
+            in = new DataInputStream(socket.getInputStream());
+            out = new DataOutputStream(socket.getOutputStream());
 
-            // UPDATED: PROTOCOL V3.2 (WITH VOTE SUMMARY)
-            // Format: "Title;Active;Winner;DetailSummaryString#"
+            activeClientStreams.add(out);
+
             StringBuilder sbHistory = new StringBuilder("HISTORY_LIST|");
             for (VotingSession vs : historySessions) {
                 sbHistory.append(vs.getTitle()).append(";")
                         .append(vs.isActive()).append(";")
                         .append(vs.getWinnerResult()).append(";")
-                        .append(vs.getVoteSummary()).append("#"); // NEW: Add Detail Summary
+                        .append(vs.getVoteSummary()).append("#");
             }
             out.writeUTF(sbHistory.toString());
 
-            if (currentSession != null && currentSession.isActive()) {
-                out.writeUTF("SETUP_V2_IMAGES");
-                out.writeUTF(currentSession.getTitle());
-                java.util.Set<String> candidates = currentSession.getCandidates();
+            sendActiveSessionsPayload(out);
+
+            while (true) {
+                String msg = in.readUTF();
+                if (msg.startsWith("VOTE|")) {
+                    String[] parts = msg.split("\\|");
+                    if (parts.length >= 3) {
+                        String sessionTitle = parts[1];
+                        String candidateName = parts[2];
+
+                        for (VotingSession vs : activeSessions) {
+                            if (vs.getTitle().equals(sessionTitle)) {
+                                vs.addVote(candidateName);
+                                SwingUtilities.invokeLater(this::updateRealtimeStats);
+                                broadcastUpdate();
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+        } finally {
+            if (out != null)
+                activeClientStreams.remove(out);
+            connectedClients--;
+            SwingUtilities.invokeLater(() -> lblStatClients.setText(String.valueOf(connectedClients)));
+            try {
+                socket.close();
+            } catch (IOException ex) {
+            }
+        }
+    }
+
+    private void sendActiveSessionsPayload(DataOutputStream out) throws IOException {
+        List<VotingSession> liveSessions = new ArrayList<>(activeSessions);
+
+        if (!liveSessions.isEmpty()) {
+            out.writeUTF("MULTI_SETUP|" + liveSessions.size());
+
+            for (VotingSession session : liveSessions) {
+                out.writeUTF(session.getTitle());
+                java.util.Set<String> candidates = session.getCandidates();
                 out.writeInt(candidates.size());
+
                 for (String name : candidates) {
                     out.writeUTF(name);
-                    String path = currentSession.getCandidateImage(name);
+                    String path = session.getCandidateImage(name);
                     File imgFile = new File(path);
                     if (imgFile.exists() && !imgFile.isDirectory()) {
                         byte[] bytes = Files.readAllBytes(imgFile.toPath());
@@ -783,30 +796,24 @@ public class ServerAdmin extends JFrame {
                         out.writeInt(0);
                     }
                 }
-            } else {
-                out.writeUTF("WAIT|Tidak ada sesi voting aktif.");
             }
-
-            while (true) {
-                String msg = in.readUTF();
-                if (msg.startsWith("VOTE|")) {
-                    String candidateName = msg.split("\\|")[1];
-                    if (currentSession != null && currentSession.isActive()) {
-                        currentSession.addVote(candidateName);
-                        SwingUtilities.invokeLater(this::updateRealtimeStats);
-                    }
-                }
-            }
-        } catch (Exception e) {
-        } finally {
-            connectedClients--;
-            SwingUtilities.invokeLater(() -> lblStatClients.setText(String.valueOf(connectedClients)));
+        } else {
+            out.writeUTF("WAIT|Tidak ada sesi voting aktif.");
         }
     }
 
-    // =========================================================================
-    // 🛠️ HELPER CLASSES
-    // =========================================================================
+    private void broadcastUpdate() {
+        synchronized (activeClientStreams) {
+            for (DataOutputStream out : activeClientStreams) {
+                try {
+                    for (VotingSession vs : activeSessions) {
+                        out.writeUTF("REFRESH_STATS|" + vs.getTitle() + "|" + vs.getVoteSummary());
+                    }
+                } catch (IOException e) {
+                }
+            }
+        }
+    }
 
     private void addCandidateRow() {
         CandidateInputRow row = new CandidateInputRow(inputRows.size() + 1);
@@ -827,7 +834,88 @@ public class ServerAdmin extends JFrame {
         candidatesContainer.repaint();
     }
 
-    // INNER CLASS ROW INPUT
+    private void openCandidateManager() {
+        if (viewedSession == null || !viewedSession.isActive())
+            return;
+
+        JDialog dialog = new JDialog(this, "Kelola Kandidat: " + viewedSession.getTitle(), true);
+        dialog.setSize(500, 600);
+        dialog.setLocationRelativeTo(this);
+        dialog.setLayout(new BorderLayout());
+
+        JPanel listPanel = new JPanel();
+        listPanel.setLayout(new BoxLayout(listPanel, BoxLayout.Y_AXIS));
+        listPanel.setBorder(new EmptyBorder(10, 10, 10, 10));
+
+        for (String name : viewedSession.getCandidates()) {
+            JPanel item = new JPanel(new BorderLayout(10, 0));
+            item.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(Color.LIGHT_GRAY),
+                    new EmptyBorder(10, 10, 10, 10)));
+
+            JLabel lblName = new JLabel(name);
+            lblName.setFont(AppTheme.FONT_BOLD);
+
+            JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
+
+            JButton btnEdit = new JButton("✏");
+            btnEdit.addActionListener(e -> {
+                String newName = JOptionPane.showInputDialog(dialog, "Ganti nama:", name);
+                if (newName != null && !newName.trim().isEmpty() && !newName.equals(name)) {
+                    if (viewedSession.updateCandidateName(name, newName)) {
+                        dialog.dispose();
+                        openCandidateManager();
+                        refreshMonitorUI();
+                    } else {
+                        JOptionPane.showMessageDialog(dialog, "Nama sudah ada atau tidak valid!");
+                    }
+                }
+            });
+
+            JButton btnDelete = new JButton("🗑");
+            btnDelete.setForeground(Color.RED);
+            btnDelete.addActionListener(e -> {
+                int confirm = JOptionPane.showConfirmDialog(dialog, "Hapus kandidat ini? Suara akan hilang!", "Hapus",
+                        JOptionPane.YES_NO_OPTION);
+                if (confirm == JOptionPane.YES_OPTION) {
+                    viewedSession.removeCandidate(name);
+                    dialog.dispose();
+                    openCandidateManager();
+                    refreshMonitorUI();
+                }
+            });
+
+            actions.add(btnEdit);
+            actions.add(btnDelete);
+
+            item.add(lblName, BorderLayout.CENTER);
+            item.add(actions, BorderLayout.EAST);
+
+            listPanel.add(item);
+            listPanel.add(Box.createVerticalStrut(10));
+        }
+
+        dialog.add(new JScrollPane(listPanel), BorderLayout.CENTER);
+
+        JButton btnAdd = new JButton("+ Tambah Kandidat Baru");
+        btnAdd.setFont(AppTheme.FONT_BOLD);
+        btnAdd.addActionListener(e -> {
+            String newName = JOptionPane.showInputDialog(dialog, "Nama Kandidat Baru:");
+            if (newName != null && !newName.trim().isEmpty()) {
+                if (viewedSession.addCandidate(newName, "")) {
+                    dialog.dispose();
+                    openCandidateManager();
+                    refreshMonitorUI();
+                } else {
+                    JOptionPane.showMessageDialog(dialog, "Gagal tambah. Nama mungkin duplikat.");
+                }
+            }
+        });
+
+        dialog.add(btnAdd, BorderLayout.SOUTH);
+        dialog.setVisible(true);
+    }
+
     private class CandidateInputRow {
         JPanel panel;
         JTextField txtName;
@@ -857,7 +945,6 @@ public class ServerAdmin extends JFrame {
             btnUpload.setBackground(Color.WHITE);
             btnUpload.addActionListener(e -> chooseImage());
 
-            // --- GOALS: Hapus Foto jadi Teks Biasa ---
             btnRemoveImage = new JButton("❌");
             btnRemoveImage.setToolTipText("Hapus Foto");
             btnRemoveImage.setForeground(Color.RED);
@@ -875,7 +962,6 @@ public class ServerAdmin extends JFrame {
             btnDeleteRow.setContentAreaFilled(false);
             btnDeleteRow.setBorderPainted(false);
 
-            // Logic Hapus Baris (Sederhana: Hapus dari UI & List)
             btnDeleteRow.addActionListener(e -> {
                 if (inputRows.size() > 2) {
                     inputRows.remove(this);
@@ -943,7 +1029,6 @@ public class ServerAdmin extends JFrame {
             int h = getHeight();
             int padding = 60;
 
-            // Mencari maxVotes dari data session
             int maxVotes = 1;
             for (int val : viewedSession.getAllData().values())
                 maxVotes = Math.max(maxVotes, val);

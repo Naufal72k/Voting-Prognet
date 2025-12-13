@@ -1,53 +1,28 @@
-import java.awt.Color;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 
-/**
- * =============================================================================
- * 📦 VOTING SESSION (DATA MODEL) - V3.2 ENHANCED
- * =============================================================================
- * UPDATE FITUR V3.2:
- * - Menambahkan metode `getVoteSummary()` untuk menghasilkan string statistik
- * yang akan dikirim ke Client (Format: "Nama:Suara,Nama:Suara").
- */
 public class VotingSession {
 
-    // =========================================================================
-    // 🧠 DATA FIELDS
-    // =========================================================================
     private String sessionTitle;
-    private String description;
-    private Color themeColor;
-
-    // Waktu & Status
     private long startTime;
-    private long endTime;
 
-    // --- IDENTITY MANAGEMENT (Goals 1) ---
-    private boolean isActive; // TRUE = Sedang Berjalan (Live)
-    private boolean isFromDatabase; // TRUE = Data Arsip dari MySQL (Read-Only)
+    private boolean isActive;
+    private boolean isFromDatabase;
 
-    // LinkedHashMap menjaga urutan kandidat sesuai input awal
     private Map<String, Integer> voteData;
     private Map<String, String> candidateImages;
 
-    /**
-     * Constructor Utama.
-     * Membuat Sesi BARU (Live).
-     */
     public VotingSession(String title, String[] candidates, String[] imagePaths) {
         this.sessionTitle = title;
         this.voteData = new LinkedHashMap<>();
         this.candidateImages = new LinkedHashMap<>();
 
-        // Default State untuk Sesi Baru
         this.startTime = System.currentTimeMillis();
         this.isActive = true;
-        this.isFromDatabase = false; // Default: Bukan dari DB (Live Session)
+        this.isFromDatabase = false;
 
-        this.description = "Sesi Pemungutan Suara Resmi";
-        this.themeColor = AppTheme.COLOR_PRIMARY_START;
+        this.isFromDatabase = false;
 
         if (candidates != null) {
             for (int i = 0; i < candidates.length; i++) {
@@ -62,27 +37,17 @@ public class VotingSession {
         }
     }
 
-    // =========================================================================
-    // ⚙️ CORE LOGIC (VOTING)
-    // =========================================================================
-
-    /**
-     * Menambah suara dengan proteksi penuh.
-     */
     public synchronized void addVote(String candidateName) {
-        // 1. Cek apakah sesi masih aktif
         if (!isActive) {
             System.out.println("⚠️ REJECTED: Sesi sudah ditutup.");
             return;
         }
 
-        // 2. Cek apakah ini data arsip (Goals 1)
         if (isFromDatabase) {
             System.out.println("⚠️ REJECTED: Tidak bisa mengubah data arsip database!");
             return;
         }
 
-        // 3. Tambahkan suara
         if (voteData.containsKey(candidateName)) {
             voteData.put(candidateName, voteData.get(candidateName) + 1);
             System.out.println("🗳️ VOTE LOG: " + candidateName + " +1");
@@ -90,7 +55,6 @@ public class VotingSession {
     }
 
     public void addVoteUnsafe(String candidateName) {
-        // Proteksi juga diterapkan di mode unsafe
         if (!isActive || isFromDatabase)
             return;
 
@@ -105,15 +69,6 @@ public class VotingSession {
         }
     }
 
-    // =========================================================================
-    // 🛑 SESSION MANAGEMENT
-    // =========================================================================
-
-    /**
-     * MERESET semua suara menjadi 0.
-     * Fitur ini digunakan khusus untuk Stress Test mode "No Save"
-     * agar bisa melakukan simulasi berulang kali tanpa restart server.
-     */
     public synchronized void resetVotes() {
         for (String key : voteData.keySet()) {
             voteData.put(key, 0);
@@ -121,14 +76,8 @@ public class VotingSession {
         System.out.println("🔄 VOTES RESET: " + sessionTitle);
     }
 
-    /**
-     * Digunakan oleh Admin untuk MENGHENTIKAN sesi Live.
-     */
     public void endSession() {
         this.isActive = false;
-        this.endTime = System.currentTimeMillis();
-        // isFromDatabase tetap FALSE karena ini baru saja selesai, belum tentu
-        // tersimpan
         System.out.println("🏁 SESSION ENDED: " + sessionTitle);
     }
 
@@ -136,24 +85,13 @@ public class VotingSession {
         return isActive;
     }
 
-    /**
-     * Mengembalikan status apakah sesi ini adalah arsip dari database.
-     */
     public boolean isFromDatabase() {
         return isFromDatabase;
     }
 
-    // =========================================================================
-    // 🛠️ DATABASE RESTORATION HELPERS
-    // =========================================================================
-
-    /**
-     * Dipanggil oleh DatabaseManager saat me-load riwayat.
-     * Mengunci objek ini sebagai ARSIP (Read-Only).
-     */
     public void forceEndSession() {
         this.isActive = false;
-        this.isFromDatabase = true; // Menandai sebagai Arsip DB
+        this.isFromDatabase = true;
     }
 
     public void overwriteStartTime(long timestamp) {
@@ -165,10 +103,6 @@ public class VotingSession {
             voteData.put(candidateName, count);
         }
     }
-
-    // =========================================================================
-    // 🏆 WINNER & STATS CALCULATION LOGIC
-    // =========================================================================
 
     public String getWinnerResult() {
         if (voteData.isEmpty())
@@ -198,27 +132,18 @@ public class VotingSession {
         return winnerName + " (" + maxVotes + " Suara)";
     }
 
-    /**
-     * NEW V3.2: Menghasilkan string ringkasan untuk detail suara.
-     * Format: "Nama1:10,Nama2:5,Nama3:20"
-     */
     public String getVoteSummary() {
         StringBuilder sb = new StringBuilder();
         int count = 0;
         for (Map.Entry<String, Integer> entry : voteData.entrySet()) {
             if (count > 0) {
-                sb.append(","); // Separator antar kandidat
+                sb.append(",");
             }
-            // Format: Nama:JumlahSuara
             sb.append(entry.getKey()).append(":").append(entry.getValue());
             count++;
         }
         return sb.toString();
     }
-
-    // =========================================================================
-    // 🎨 GETTERS
-    // =========================================================================
 
     public String getTitle() {
         return sessionTitle;
@@ -254,5 +179,41 @@ public class VotingSession {
 
     public Map<String, String> getAllImages() {
         return new LinkedHashMap<>(candidateImages);
+    }
+
+    public synchronized boolean updateCandidateName(String oldName, String newName) {
+        if (!voteData.containsKey(oldName) || voteData.containsKey(newName)) {
+            return false;
+        }
+
+        int votes = voteData.remove(oldName);
+        String img = candidateImages.remove(oldName);
+
+        voteData.put(newName, votes);
+        candidateImages.put(newName, img);
+
+        return true;
+    }
+
+    public synchronized void updateCandidateImage(String name, String newPath) {
+        if (candidateImages.containsKey(name)) {
+            candidateImages.put(name, newPath);
+        }
+    }
+
+    public synchronized void removeCandidate(String name) {
+        if (voteData.containsKey(name)) {
+            voteData.remove(name);
+            candidateImages.remove(name);
+        }
+    }
+
+    public synchronized boolean addCandidate(String name, String imagePath) {
+        if (voteData.containsKey(name))
+            return false;
+
+        voteData.put(name, 0);
+        candidateImages.put(name, imagePath);
+        return true;
     }
 }

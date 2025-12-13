@@ -5,49 +5,27 @@ import java.awt.image.BufferedImage;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 
-/**
- * =============================================================================
- * 🎨 APP THEME: DESIGN SYSTEM CORE
- * =============================================================================
- * "Pabrik Komponen" untuk merender UI Modern.
- * UPDATE LOG V3.1:
- * - Menghapus efek Hover pada tombol (Static UI).
- * - Menghapus MouseListener yang tidak perlu.
- */
 public class AppTheme {
-
-    // =========================================================================
-    // 🌐 1. CONFIG & PALETTE
-    // =========================================================================
 
     public static final String SERVER_HOST = "localhost";
     public static final int SERVER_PORT = 9999;
 
-    // Warna Utama
-    public static final Color COLOR_PRIMARY_START = new Color(37, 99, 235); // Royal Blue
-    public static final Color COLOR_PRIMARY_END = new Color(59, 130, 246); // Lighter Blue
+    public static final Color COLOR_PRIMARY_START = new Color(37, 99, 235);
+    public static final Color COLOR_PRIMARY_END = new Color(59, 130, 246);
 
-    // Warna Background & Surface
     public static final Color COLOR_BACKGROUND_APP = new Color(248, 250, 252);
     public static final Color COLOR_SIDEBAR = new Color(15, 23, 42);
     public static final Color COLOR_SURFACE = Color.WHITE;
 
-    // Warna Teks
     public static final Color COLOR_TEXT_MAIN = new Color(30, 41, 59);
     public static final Color COLOR_TEXT_MUTED = new Color(100, 116, 139);
     public static final Color COLOR_TEXT_LIGHT = Color.WHITE;
 
-    // Warna Status
-    public static final Color COLOR_STATUS_LIVE = new Color(22, 163, 74); // Green 600
-    public static final Color COLOR_STATUS_ENDED = new Color(220, 38, 38); // Red 600
+    public static final Color COLOR_STATUS_LIVE = new Color(22, 163, 74);
+    public static final Color COLOR_STATUS_ENDED = new Color(220, 38, 38);
 
-    // Warna Efek
     public static final Color COLOR_SHADOW = new Color(0, 0, 0, 15);
-    public static final Color COLOR_ACTIVE_INDICATOR = new Color(56, 189, 248); // Cyan Light
-
-    // =========================================================================
-    // 🔤 2. CUSTOM FONT LOADING
-    // =========================================================================
+    public static final Color COLOR_ACTIVE_INDICATOR = new Color(56, 189, 248);
 
     public static Font FONT_H1;
     public static Font FONT_H2;
@@ -78,10 +56,6 @@ public class AppTheme {
         }
     }
 
-    // =========================================================================
-    // 🏭 3. COMPONENT FACTORY: SHADOW PANEL
-    // =========================================================================
-
     public static JPanel createShadowPanel() {
         JPanel panel = new JPanel() {
             @Override
@@ -111,10 +85,6 @@ public class AppTheme {
         return panel;
     }
 
-    // =========================================================================
-    // 🏭 4. COMPONENT FACTORY: STATUS BADGE
-    // =========================================================================
-
     public static JLabel createStatusLabel(boolean isActive) {
         String text = isActive ? "● SEDANG BERLANGSUNG" : "● SELESAI";
         Color color = isActive ? COLOR_STATUS_LIVE : COLOR_STATUS_ENDED;
@@ -125,20 +95,14 @@ public class AppTheme {
         return lbl;
     }
 
-    // =========================================================================
-    // 🏭 5. COMPONENT FACTORY: GRADIENT BUTTON
-    // =========================================================================
-
     public static JButton createGradientButton(String text, int width, int height) {
         JButton btn = new JButton(text) {
-            // Hapus isHovered & isPressed untuk menghilangkan efek interaktif
 
             @Override
             protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g.create();
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-                // Warna Statis (Tidak berubah saat hover/klik)
                 Color color1 = COLOR_PRIMARY_START;
                 Color color2 = COLOR_PRIMARY_END;
 
@@ -156,25 +120,18 @@ public class AppTheme {
                 g2.dispose();
             }
 
-            // Hapus MouseListener
         };
 
         btn.setPreferredSize(new Dimension(width, height));
         btn.setContentAreaFilled(false);
         btn.setFocusPainted(false);
         btn.setBorderPainted(false);
-        // Set cursor tetap hand agar user tahu ini tombol, meski tidak ada efek warna
         btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
         return btn;
     }
 
-    // =========================================================================
-    // 🏭 6. COMPONENT FACTORY: SIDEBAR BUTTON
-    // =========================================================================
-
     public static class SidebarButton extends JButton {
         private boolean isActive;
-        // Hapus isHovered
 
         public SidebarButton(String iconText, boolean initialActive) {
             super(iconText);
@@ -187,7 +144,6 @@ public class AppTheme {
             setHorizontalAlignment(SwingConstants.CENTER);
             setCursor(new Cursor(Cursor.HAND_CURSOR));
 
-            // Hapus MouseListener (No Hover Effect)
         }
 
         public void setActive(boolean isActive) {
@@ -200,14 +156,12 @@ public class AppTheme {
             Graphics2D g2 = (Graphics2D) g.create();
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-            // Logic Warna: Hanya berubah jika ACTIVE (sedang di halaman tersebut)
             if (isActive) {
                 g2.setColor(new Color(255, 255, 255, 20));
                 g2.fillRoundRect(5, 5, getWidth() - 10, getHeight() - 10, 15, 15);
                 g2.setColor(COLOR_ACTIVE_INDICATOR);
                 g2.fillRoundRect(0, 15, 4, getHeight() - 30, 5, 5);
             }
-            // Bagian else if (isHovered) DIHAPUS
 
             if (isActive) {
                 g2.setColor(Color.WHITE);
@@ -231,13 +185,6 @@ public class AppTheme {
         return new SidebarButton(text, isActive);
     }
 
-    // =========================================================================
-    // 🖼️ 7. IMAGE UTILITIES
-    // =========================================================================
-
-    /**
-     * Helper untuk resize gambar dari File Path.
-     */
     public static ImageIcon scaleImage(String imagePath, int width, int height) {
         if (imagePath == null || imagePath.isEmpty()) {
             return null;
@@ -251,9 +198,6 @@ public class AppTheme {
         }
     }
 
-    /**
-     * Helper untuk resize ImageIcon yang sudah ada.
-     */
     public static ImageIcon scaleImage(ImageIcon icon, int width, int height) {
         if (icon == null)
             return null;
@@ -273,10 +217,6 @@ public class AppTheme {
 
         return new ImageIcon(bi);
     }
-
-    // =========================================================================
-    // 🛠️ UTILITIES
-    // =========================================================================
 
     public static void styleTextField(JTextField field) {
         field.setFont(FONT_BODY);
